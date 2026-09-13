@@ -20,6 +20,10 @@
 
 #include "Differentials.h"
 
+#ifndef ROR_PORTABLE_CORE
+#include "Language.h"
+#endif
+
 #include <algorithm>
 #include <cmath>
 
@@ -30,6 +34,15 @@ namespace
 float ClampFloat(float value, float minimum, float maximum)
 {
     return std::max(minimum, std::min(value, maximum));
+}
+
+std::string GetLocalizedDiffName(const char* name)
+{
+#ifdef ROR_PORTABLE_CORE
+    return name;
+#else
+    return _L(name);
+#endif
 }
 }
 
@@ -59,15 +72,15 @@ void Differential::CalcAxleTorque(DifferentialData& diff_data)
 std::string Differential::GetDifferentialTypeName()
 {
     if (m_available_diffs.empty())
-        return "invalid";
+        return GetLocalizedDiffName("invalid");
 
     switch (m_available_diffs[0])
     {
-    case SPLIT_DIFF:   return "Split";
-    case OPEN_DIFF:    return "Open";
-    case VISCOUS_DIFF: return "Viscous";
-    case LOCKED_DIFF:  return "Locked";
-    default:           return "invalid";
+    case SPLIT_DIFF:   return GetLocalizedDiffName("Split");
+    case OPEN_DIFF:    return GetLocalizedDiffName("Open");
+    case VISCOUS_DIFF: return GetLocalizedDiffName("Viscous");
+    case LOCKED_DIFF:  return GetLocalizedDiffName("Locked");
+    default:           return GetLocalizedDiffName("invalid");
     }
 }
 
