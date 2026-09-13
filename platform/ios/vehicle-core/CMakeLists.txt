@@ -9,12 +9,14 @@ add_library(ror_vehicle_core STATIC
     ../../../source/main/physics/WheelPhysics.cpp
     ../../../source/main/physics/collision/GroundContact.cpp
     ../../../source/main/physics/collision/GroundFriction.cpp
+    ../../../source/main/resources/rig_def_fileformat/PortableRigDef.cpp
 )
 
 target_include_directories(ror_vehicle_core
     PUBLIC
         ../../../source/main/physics
         ../../../source/main/physics/collision
+        ../../../source/main/resources/rig_def_fileformat
 )
 
 target_compile_features(ror_vehicle_core PUBLIC cxx_std_11)
@@ -55,11 +57,11 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(ror_steering_suspension_probe PRIVATE ror_vehicle_core)
     target_compile_features(ror_steering_suspension_probe PRIVATE cxx_std_11)
 
-    add_executable(ror_four_wheel_rwd_probe
-        tests/FourWheelRwdProbe.cpp
+    add_executable(ror_rigdef_probe
+        tests/RigDefProbe.cpp
     )
-    target_link_libraries(ror_four_wheel_rwd_probe PRIVATE ror_vehicle_core)
-    target_compile_features(ror_four_wheel_rwd_probe PRIVATE cxx_std_11)
+    target_link_libraries(ror_rigdef_probe PRIVATE ror_vehicle_core)
+    target_compile_features(ror_rigdef_probe PRIVATE cxx_std_11)
 
     add_test(
         NAME ror_vehicle_core_probe
@@ -82,7 +84,7 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
         COMMAND ror_steering_suspension_probe
     )
     add_test(
-        NAME ror_four_wheel_rwd_probe
-        COMMAND ror_four_wheel_rwd_probe
+        NAME ror_rigdef_probe
+        COMMAND ror_rigdef_probe
     )
 endif()
