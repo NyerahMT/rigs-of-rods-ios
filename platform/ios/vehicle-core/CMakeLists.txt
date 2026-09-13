@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(RoRVehicleCore LANGUAGES CXX)
 
 add_library(ror_vehicle_core STATIC
+    RigPhysicsBuilder.cpp
     ../../../source/main/physics/BeamPhysics.cpp
     ../../../source/main/physics/Differentials.cpp
     ../../../source/main/physics/HydroPhysics.cpp
@@ -14,6 +15,7 @@ add_library(ror_vehicle_core STATIC
 
 target_include_directories(ror_vehicle_core
     PUBLIC
+        .
         ../../../source/main/physics
         ../../../source/main/physics/collision
         ../../../source/main/resources/rig_def_fileformat
@@ -63,6 +65,12 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(ror_rigdef_probe PRIVATE ror_vehicle_core)
     target_compile_features(ror_rigdef_probe PRIVATE cxx_std_11)
 
+    add_executable(ror_rig_physics_builder_probe
+        tests/RigPhysicsBuilderProbe.cpp
+    )
+    target_link_libraries(ror_rig_physics_builder_probe PRIVATE ror_vehicle_core)
+    target_compile_features(ror_rig_physics_builder_probe PRIVATE cxx_std_11)
+
     add_test(
         NAME ror_vehicle_core_probe
         COMMAND ror_vehicle_core_probe
@@ -86,5 +94,9 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_test(
         NAME ror_rigdef_probe
         COMMAND ror_rigdef_probe
+    )
+    add_test(
+        NAME ror_rig_physics_builder_probe
+        COMMAND ror_rig_physics_builder_probe
     )
 endif()
