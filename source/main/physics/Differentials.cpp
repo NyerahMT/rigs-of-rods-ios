@@ -18,11 +18,20 @@
     along with Rigs of Rods. If not, see <http://www.gnu.org/licenses/>.
 */
 
-#include "Application.h"
 #include "Differentials.h"
-#include "Language.h"
+
+#include <algorithm>
+#include <cmath>
 
 using namespace RoR;
+
+namespace
+{
+float ClampFloat(float value, float minimum, float maximum)
+{
+    return std::max(minimum, std::min(value, maximum));
+}
+}
 
 void Differential::ToggleDifferentialMode()
 {
@@ -43,21 +52,22 @@ void Differential::CalcAxleTorque(DifferentialData& diff_data)
     case OPEN_DIFF:    this->CalcOpenDiff(diff_data);      return;
     case VISCOUS_DIFF: this->CalcViscousDiff(diff_data);   return;
     case LOCKED_DIFF:  this->CalcLockedDiff(diff_data);    return;
+    default: return;
     }
 }
 
 std::string Differential::GetDifferentialTypeName()
 {
     if (m_available_diffs.empty())
-        return _L("invalid");
+        return "invalid";
 
     switch (m_available_diffs[0])
     {
-    case SPLIT_DIFF:   return _L("Split");
-    case OPEN_DIFF:    return _L("Open");
-    case VISCOUS_DIFF: return _L("Viscous");
-    case LOCKED_DIFF:  return _L("Locked");
-    default:           return _L("invalid");
+    case SPLIT_DIFF:   return "Split";
+    case OPEN_DIFF:    return "Open";
+    case VISCOUS_DIFF: return "Viscous";
+    case LOCKED_DIFF:  return "Locked";
+    default:           return "invalid";
     }
 }
 
@@ -78,21 +88,21 @@ void Differential::CalcOpenDiff(DifferentialData& diff_data)
     diff_data.out_torque[0] = diff_data.out_torque[1] = diff_data.in_torque;
 
     // combined total velocity
-    const Ogre::Real sum_of_vel = fabs(diff_data.speed[0]) + fabs(diff_data.speed[1]);
+    const float sum_of_vel = std::fabs(diff_data.speed[0]) + std::fabs(diff_data.speed[1]);
 
     // minimum velocity
-    const Ogre::Real min_of_vel = std::min(fabs(diff_data.speed[0]), fabs(diff_data.speed[1]));
+    const float min_of_vel = std::min(std::fabs(diff_data.speed[0]), std::fabs(diff_data.speed[1]));
 
     // normalize the wheel speed, at a speed of 0 power is split evenly
-    const Ogre::Real power_ratio = min_of_vel > 1.0f ? fabs(diff_data.speed[0]) / sum_of_vel : 0.5f;
+    const float power_ratio = min_of_vel > 1.0f ? std::fabs(diff_data.speed[0]) / sum_of_vel : 0.5f;
 
     // Diff model taken from Torcs, ror needs to model reaction torque for this to work.
     //DrTq0 = DrTq*0.5f + spiderTq;
     //DrTq1 = DrTq*0.5f - spiderTq;
 
     // get the final ratio based on the speed of the wheels
-    diff_data.out_torque[0] *= Ogre::Math::Clamp(0.0f + power_ratio, 0.1f, 0.9f);
-    diff_data.out_torque[1] *= Ogre::Math::Clamp(1.0f - power_ratio, 0.1f, 0.9f);
+    diff_data.out_torque[0] *= ClampFloat(0.0f + power_ratio, 0.1f, 0.9f);
+    diff_data.out_torque[1] *= ClampFloat(1.0f - power_ratio, 0.1f, 0.9f);
 }
 
 void Differential::CalcViscousDiff(DifferentialData& diff_data)
@@ -103,8 +113,8 @@ void Differential::CalcViscousDiff(DifferentialData& diff_data)
      * coupling.
      */
 
-    const Ogre::Real m_torsion_damp = 10000.0f;
-    const Ogre::Real delta_speed = diff_data.speed[0] - diff_data.speed[1];
+    const float m_torsion_damp = 10000.0f;
+    const float delta_speed = diff_data.speed[0] - diff_data.speed[1];
 
     diff_data.out_torque[0] = diff_data.out_torque[1] = diff_data.in_torque / 2.0f;
 
@@ -126,9 +136,9 @@ void Differential::CalcLockedDiff(DifferentialData& diff_data)
 
     // Torsion spring rate that holds axles together when locked
     // keep as variable for now since this value will be user configurable
-    const Ogre::Real m_torsion_rate = 1000000.0f;
-    const Ogre::Real m_torsion_damp = m_torsion_rate / 100.0f;
-    const Ogre::Real delta_speed = diff_data.speed[0] - diff_data.speed[1];
+    const float m_torsion_rate = 1000000.0f;
+    const float m_torsion_damp = m_torsion_rate / 100.0f;
+    const float delta_speed = diff_data.speed[0] - diff_data.speed[1];
 
     diff_data.out_torque[0] = diff_data.out_torque[1] = diff_data.in_torque / 2.0f;
 
