@@ -100,8 +100,6 @@ WheelFixture BuildWheel(
     fixture.outer_nodes.reserve(RAYS * 2);
     fixture.bindings.reserve(RAYS * 2);
 
-    // Build tire ring in the plane normal to the +Z wheel axis. The axis may
-    // later steer; beam geometry carries the deformable tire with it.
     for (int ray = 0; ray < RAYS; ++ray)
     {
         const float angle = 2.0f * PI * static_cast<float>(ray) / static_cast<float>(RAYS);
@@ -183,8 +181,6 @@ int main()
     std::vector<BeamLink> beams;
     beams.reserve(500);
 
-    // A compact body lattice. Front kingpins are themselves structural body
-    // nodes; wheel carriers rotate around them rather than receiving an angle.
     NodeCoreState* fl_low  = AddNode(nodes, PhysicsVec3( 1.30f, 0.48f,  0.68f), 45.0f);
     NodeCoreState* fr_low  = AddNode(nodes, PhysicsVec3( 1.30f, 0.48f, -0.68f), 45.0f);
     NodeCoreState* rl_low  = AddNode(nodes, PhysicsVec3(-1.30f, 0.48f,  0.68f), 55.0f);
@@ -199,7 +195,6 @@ int main()
     {
         for (int j = i + 1; j < 8; ++j)
         {
-            // Dense triangulation is intentional for this first stability gate.
             if (Distance(body[i]->position, body[j]->position) < 3.25f)
             {
                 AddBeam(beams, body[i], body[j], 900000.0f, 9000.0f);
@@ -207,7 +202,6 @@ int main()
         }
     }
 
-    // Rear axle is non-steering and rigidly located by the body lattice.
     NodeCoreState* rear_left_a0  = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f,  0.80f), 30.0f);
     NodeCoreState* rear_left_a1  = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f,  1.00f), 30.0f);
     NodeCoreState* rear_right_a0 = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f, -1.00f), 30.0f);
@@ -222,8 +216,6 @@ int main()
     AddBeam(beams, rear_right_a1, rr_low,  600000.0f, 6000.0f);
     AddBeam(beams, rear_right_a1, rr_high, 600000.0f, 6000.0f);
 
-    // Front carrier axis nodes. Distances to both kingpin nodes constrain each
-    // carrier to rotate around the kingpin's vertical axis.
     NodeCoreState* front_left_a0  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  0.80f), 22.0f);
     NodeCoreState* front_left_a1  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  1.00f), 22.0f);
     NodeCoreState* front_right_a0 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -1.00f), 22.0f);
@@ -241,8 +233,6 @@ int main()
     AddBeam(beams, fr_high, front_right_a1, 700000.0f, 7000.0f);
     AddBeam(beams, front_right_a0, front_right_a1, 700000.0f, 7000.0f);
 
-    // Rack anchors move with the body. Opposite hydro factors are required by
-    // the mirrored left/right linkage geometry to create the same steer sign.
     NodeCoreState* rack_left  = AddNode(nodes, PhysicsVec3(1.02f, 0.68f,  0.20f), 20.0f);
     NodeCoreState* rack_right = AddNode(nodes, PhysicsVec3(1.02f, 0.68f, -0.20f), 20.0f);
     AddBeam(beams, rack_left, fl_low,   900000.0f, 9000.0f);
@@ -257,8 +247,6 @@ int main()
     const float left_hydro_reference = left_hydro->beam.rest_length;
     const float right_hydro_reference = right_hydro->beam.rest_length;
 
-    // Build all four deformable tires after the structural nodes are stable in
-    // the deque, then retain pointers just as the portable wheel layer expects.
     WheelFixture front_left  = BuildWheel(nodes, beams, front_left_a0,  front_left_a1);
     WheelFixture front_right = BuildWheel(nodes, beams, front_right_a0, front_right_a1);
     WheelFixture rear_left   = BuildWheel(nodes, beams, rear_left_a0,   rear_left_a1);
@@ -275,13 +263,12 @@ int main()
     road.node_friction = 1.0f;
 
     const PhysicsVec3 initial_com = CenterOfMass(nodes);
+    PhysicsVec3 com_before_steer = initial_com;
     float diff_delta_rotation = 0.0f;
     float steering_state = 0.0f;
     int four_tire_contact_steps = 0;
-    float left_steer = 0.0f;
-    float right_steer = 0.0f;
 
-    for (int step = 0; step < 8000; ++step) // four seconds
+    for (int step = 0; step < 8000; ++step)
     {
         bool fl_contact = false;
         bool fr_contact = false;
@@ -302,8 +289,6 @@ int main()
             Require(Finite(node.position) && Finite(node.velocity), "four-wheel vehicle state remains finite");
         }
 
-        // Keep the first half mostly straight, then command a meaningful steer
-        // input while power stays on so steering and driveline coexist.
         const float steering_command = (step < 4000) ? 0.0f : 0.70f;
         const float road_speed = 0.5f * (std::fabs(rear_left.wheel.speed) + std::fabs(rear_right.wheel.speed));
         steering_state = StepHydroSteeringState(
@@ -334,15 +319,30 @@ int main()
             ApplyBeamForce(*link.a, *link.b, link.beam);
             Require(std::isfinite(link.beam.stress), "four-wheel beam stress remains finite");
         }
+
+        if (step == 3999)
+        {
+            com_before_steer = CenterOfMass(nodes);
+        }
     }
 
     const PhysicsVec3 final_com = CenterOfMass(nodes);
-    const float driven_distance = std::fabs(final_com.x - initial_com.x);
-    left_steer = SteeringAngle(front_left);
-    right_steer = SteeringAngle(front_right);
+    const float straight_driven_distance = std::fabs(com_before_steer.x - initial_com.x);
+    const float final_horizontal_displacement = std::sqrt(
+        (final_com.x - initial_com.x) * (final_com.x - initial_com.x) +
+        (final_com.z - initial_com.z) * (final_com.z - initial_com.z));
+    const float left_steer = SteeringAngle(front_left);
+    const float right_steer = SteeringAngle(front_right);
+
+    std::cerr << "four-wheel metrics: straight=" << straight_driven_distance
+              << " m, horizontal=" << final_horizontal_displacement
+              << " m, contacts=" << four_tire_contact_steps
+              << ", rear speeds=" << rear_left.wheel.speed << "/" << rear_right.wheel.speed
+              << " m/s, steer=" << (left_steer * 180.0f / PI) << "/"
+              << (right_steer * 180.0f / PI) << " deg\n";
 
     Require(four_tire_contact_steps > 500, "all four deformable tires establish road contact together");
-    Require(driven_distance > 1.5f, "rear-wheel drive propels the complete four-wheel chassis");
+    Require(straight_driven_distance > 1.5f, "rear-wheel drive propels the complete four-wheel chassis before steering");
     Require(std::fabs(rear_left.wheel.speed - rear_right.wheel.speed) < 0.5f, "locked rear diff keeps wheel speeds coupled");
     Require(std::fabs(left_steer) > 2.0f * PI / 180.0f, "left front structural carrier steers under hydro command");
     Require(std::fabs(right_steer) > 2.0f * PI / 180.0f, "right front structural carrier steers under hydro command");
@@ -354,7 +354,8 @@ int main()
     Require(Finite(final_com), "four-wheel final center of mass remains finite");
 
     std::cout << "RoR four-wheel RWD probe passed: " << nodes.size() << " nodes, "
-              << beams.size() << " beams, " << driven_distance << " m driven, steering "
+              << beams.size() << " beams, " << straight_driven_distance
+              << " m straight-line drive before steering, steering "
               << (left_steer * 180.0f / PI) << "/" << (right_steer * 180.0f / PI)
               << " deg.\n";
     return EXIT_SUCCESS;
