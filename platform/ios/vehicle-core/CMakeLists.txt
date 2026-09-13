@@ -55,6 +55,12 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(ror_steering_suspension_probe PRIVATE ror_vehicle_core)
     target_compile_features(ror_steering_suspension_probe PRIVATE cxx_std_11)
 
+    add_executable(ror_four_wheel_rwd_probe
+        tests/FourWheelRwdProbe.cpp
+    )
+    target_link_libraries(ror_four_wheel_rwd_probe PRIVATE ror_vehicle_core)
+    target_compile_features(ror_four_wheel_rwd_probe PRIVATE cxx_std_11)
+
     add_test(
         NAME ror_vehicle_core_probe
         COMMAND ror_vehicle_core_probe
@@ -74,5 +80,9 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_test(
         NAME ror_steering_suspension_probe
         COMMAND ror_steering_suspension_probe
+    )
+    add_test(
+        NAME ror_four_wheel_rwd_probe
+        COMMAND ror_four_wheel_rwd_probe
     )
 endif()
