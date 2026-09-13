@@ -23,7 +23,9 @@
 
 #pragma once
 
+#ifndef ROR_PORTABLE_CORE
 #include "Application.h"
+#endif
 
 static int mirand = 1;
 
@@ -78,7 +80,6 @@ inline float approx_exp(const float x)
 }
 
 // Calculates approximate 2^x
-// Use it in code not requiring precision
 inline float approx_pow2(const float x)
 {
     int i = 8388608*x+1065353216;
@@ -87,7 +88,6 @@ inline float approx_pow2(const float x)
 }
 
 // Calculates approximate x^y
-// Use it in code not requiring precision
 inline float approx_pow(const float x, const float y)
 {
     float v = x;
@@ -97,7 +97,6 @@ inline float approx_pow(const float x, const float y)
 }
 
 // Calculates approximate square_root(x)
-// Use it in code not requiring precision
 inline float approx_sqrt(const float y)
 {
     float f = y;
@@ -142,6 +141,7 @@ inline float sign(const float x)
     return (x > 0.0f) ? 1.0f : (x < 0.0f) ? -1.0f : 0.0f;
 }
 
+#ifndef ROR_PORTABLE_CORE
 // Ogre3 specific helpers
 inline Ogre::Vector3 approx_normalise(Ogre::Vector3 v)
 {
@@ -162,4 +162,4 @@ inline float fast_length(Ogre::Vector3 v)
 {
     return fast_sqrt(v.squaredLength());
 }
-
+#endif
