@@ -302,7 +302,9 @@ int main()
         diff.speed[0] = rear_left.wheel.speed;
         diff.speed[1] = rear_right.wheel.speed;
         diff.delta_rotation = diff_delta_rotation;
-        diff.in_torque = 1050.0f;
+        // CalcDifferentials receives clutch/driveline torque after the gearbox;
+        // 3200 N*m represents a moderate low-gear RWD driveline, not crank torque.
+        diff.in_torque = 3200.0f;
         diff.dt = PHYSICS_DT;
         Differential::CalcLockedDiff(diff);
         diff_delta_rotation = diff.delta_rotation;
