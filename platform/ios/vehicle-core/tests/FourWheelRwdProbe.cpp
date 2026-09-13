@@ -216,10 +216,12 @@ int main()
     AddBeam(beams, rear_right_a1, rr_low,  600000.0f, 6000.0f);
     AddBeam(beams, rear_right_a1, rr_high, 600000.0f, 6000.0f);
 
+    // About 7 degrees positive caster: the upper steering-axis node is shifted
+    // rearward, putting the ground intersection ahead of the tire contact patch.
     NodeCoreState* left_kp_low  = AddNode(nodes, PhysicsVec3(1.30f, 0.48f,  0.90f), 8.0f);
-    NodeCoreState* left_kp_high = AddNode(nodes, PhysicsVec3(1.30f, 0.98f,  0.90f), 8.0f);
+    NodeCoreState* left_kp_high = AddNode(nodes, PhysicsVec3(1.24f, 0.98f,  0.90f), 8.0f);
     NodeCoreState* right_kp_low  = AddNode(nodes, PhysicsVec3(1.30f, 0.48f, -0.90f), 8.0f);
-    NodeCoreState* right_kp_high = AddNode(nodes, PhysicsVec3(1.30f, 0.98f, -0.90f), 8.0f);
+    NodeCoreState* right_kp_high = AddNode(nodes, PhysicsVec3(1.24f, 0.98f, -0.90f), 8.0f);
 
     AddBeam(beams, left_kp_low,  fl_low,  900000.0f, 9000.0f);
     AddBeam(beams, left_kp_low,  fl_high, 900000.0f, 9000.0f);
@@ -261,12 +263,16 @@ int main()
     AddBeam(beams, rack_right, fr_high, 900000.0f, 9000.0f);
     AddBeam(beams, rack_right, fl_low,  900000.0f, 9000.0f);
 
-    // Steering hydros are intentionally much stiffer than tire beams so road
-    // forces cannot stretch the tie rods into huge toe/over-center excursions.
     BeamLink* left_hydro = AddBeam(beams, rack_left, front_left_a0, 1500000.0f, 15000.0f);
     BeamLink* right_hydro = AddBeam(beams, rack_right, front_right_a1, 1500000.0f, 15000.0f);
     const float left_hydro_reference = left_hydro->beam.rest_length;
     const float right_hydro_reference = right_hydro->beam.rest_length;
+
+    // A soft secondary tie acts like steering-system compliance/self-centering.
+    // It is weak compared with the hydro but makes the neutral branch unique and
+    // strongly resists a 90-degree over-center flip.
+    AddBeam(beams, rack_left, front_left_a1, 80000.0f, 5000.0f);
+    AddBeam(beams, rack_right, front_right_a0, 80000.0f, 5000.0f);
 
     WheelFixture front_left  = BuildWheel(nodes, beams, front_left_a0,  front_left_a1);
     WheelFixture front_right = BuildWheel(nodes, beams, front_right_a0, front_right_a1);
@@ -325,10 +331,10 @@ int main()
         diff.speed[0] = rear_left.wheel.speed;
         diff.speed[1] = rear_right.wheel.speed;
         diff.delta_rotation = diff_delta_rotation;
-        // Approximate clutch engagement instead of applying maximum driveline
-        // torque on the first 0.5 ms simulation step.
         const float clutch_ramp = std::min(1.0f, static_cast<float>(step) / 1000.0f);
-        diff.in_torque = 3200.0f * clutch_ramp;
+        // Moderate partial-throttle axle torque for the drive/steer integration
+        // gate. Full low-gear torque is reserved for the later slip/drift gate.
+        diff.in_torque = 1800.0f * clutch_ramp;
         diff.dt = PHYSICS_DT;
         Differential::CalcLockedDiff(diff);
         diff_delta_rotation = diff.delta_rotation;
