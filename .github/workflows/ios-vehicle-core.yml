@@ -7,6 +7,7 @@ on:
       - 'source/main/physics/ApproxMath.h'
       - 'source/main/physics/BeamPhysics.*'
       - 'source/main/physics/Differentials.*'
+      - 'source/main/physics/HydroPhysics.*'
       - 'source/main/physics/WheelPhysics.*'
       - 'source/main/physics/SimConstants.h'
       - 'source/main/physics/collision/GroundContact.*'
@@ -18,6 +19,7 @@ on:
       - 'source/main/physics/ApproxMath.h'
       - 'source/main/physics/BeamPhysics.*'
       - 'source/main/physics/Differentials.*'
+      - 'source/main/physics/HydroPhysics.*'
       - 'source/main/physics/WheelPhysics.*'
       - 'source/main/physics/SimConstants.h'
       - 'source/main/physics/collision/GroundContact.*'
@@ -71,7 +73,7 @@ jobs:
           echo "Built: $LIB"
           file "$LIB"
           lipo -info "$LIB"
-          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|Calc(Static|Stribeck)FrictionScale|CalcBeamStress|ApplyBeamForce|IntegrateNode|CalcGroundContact|ApplyFlatGroundContact|CalcWheelBrakeTorque|StepWheelNodes|ApplyWheelReactionTorque' || true
+          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|Calc(Static|Stribeck)FrictionScale|CalcBeamStress|ApplyBeamForce|IntegrateNode|CalcGroundContact|ApplyFlatGroundContact|CalcWheelBrakeTorque|StepWheelNodes|ApplyWheelReactionTorque|StepHydroSteeringState|CalcHydroTargetLength' || true
 
       - name: Upload iPhone vehicle-core library
         uses: actions/upload-artifact@v4
