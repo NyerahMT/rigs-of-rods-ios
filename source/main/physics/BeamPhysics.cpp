@@ -9,6 +9,7 @@
 #include "ApproxMath.h"
 
 #include <cmath>
+#include <cstdio>
 
 namespace RoR {
 
@@ -36,6 +37,20 @@ void ApplyBeamForce(NodeCoreState& node1, NodeCoreState& node2, BeamCoreState& b
     const float relative_speed = (node1.velocity - node2.velocity).dot(displacement) * inverse_length;
 
     beam.stress = CalcBeamStress(length_error, relative_speed, beam.spring, beam.damping);
+
+    if (!std::isfinite(beam.stress))
+    {
+        std::fprintf(stderr,
+            "NONFINITE BEAM: sqL=%g len=%g ref=%g err=%g relV=%g k=%g d=%g "
+            "p1=(%g,%g,%g) p2=(%g,%g,%g) v1=(%g,%g,%g) v2=(%g,%g,%g)\n",
+            squared_length, length, beam.rest_length, length_error, relative_speed,
+            beam.spring, beam.damping,
+            node1.position.x, node1.position.y, node1.position.z,
+            node2.position.x, node2.position.y, node2.position.z,
+            node1.velocity.x, node1.velocity.y, node1.velocity.z,
+            node2.velocity.x, node2.velocity.y, node2.velocity.z);
+        return;
+    }
 
     const PhysicsVec3 force = displacement * (beam.stress * inverse_length);
     node1.force += force;
