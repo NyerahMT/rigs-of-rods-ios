@@ -20,6 +20,7 @@ struct PhysicsVec3
 
     PhysicsVec3 operator+(const PhysicsVec3& other) const { return PhysicsVec3(x + other.x, y + other.y, z + other.z); }
     PhysicsVec3 operator-(const PhysicsVec3& other) const { return PhysicsVec3(x - other.x, y - other.y, z - other.z); }
+    PhysicsVec3 operator-() const { return PhysicsVec3(-x, -y, -z); }
     PhysicsVec3 operator*(float scalar) const { return PhysicsVec3(x * scalar, y * scalar, z * scalar); }
 
     PhysicsVec3& operator+=(const PhysicsVec3& other)
@@ -39,6 +40,13 @@ struct PhysicsVec3
     }
 
     float dot(const PhysicsVec3& other) const { return x * other.x + y * other.y + z * other.z; }
+    PhysicsVec3 cross(const PhysicsVec3& other) const
+    {
+        return PhysicsVec3(
+            y * other.z - z * other.y,
+            z * other.x - x * other.z,
+            x * other.y - y * other.x);
+    }
     float squaredLength() const { return dot(*this); }
 };
 
