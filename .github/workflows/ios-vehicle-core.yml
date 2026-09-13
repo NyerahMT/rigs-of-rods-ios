@@ -1,0 +1,71 @@
+name: iOS vehicle core
+
+on:
+  push:
+    branches: [ ios-port ]
+    paths:
+      - 'source/main/physics/Differentials.*'
+      - 'source/main/physics/SimConstants.h'
+      - 'platform/ios/vehicle-core/**'
+      - '.github/workflows/ios-vehicle-core.yml'
+  pull_request:
+    paths:
+      - 'source/main/physics/Differentials.*'
+      - 'source/main/physics/SimConstants.h'
+      - 'platform/ios/vehicle-core/**'
+      - '.github/workflows/ios-vehicle-core.yml'
+  workflow_dispatch:
+
+jobs:
+  vehicle-core:
+    name: RoR vehicle physics / iPhone ARM64
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain info
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          clang++ --version
+
+      - name: Build and run native behavior probe
+        run: |
+          cmake \
+            -S platform/ios/vehicle-core \
+            -B build/vehicle-core-native \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON
+          cmake --build build/vehicle-core-native --config Release
+          ctest --test-dir build/vehicle-core-native --output-on-failure
+
+      - name: Cross-compile real RoR differential physics for iPhone
+        run: |
+          cmake \
+            -S platform/ios/vehicle-core \
+            -B build/vehicle-core-ios \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF
+          cmake --build build/vehicle-core-ios --config Release
+
+      - name: Verify iPhone artifact
+        run: |
+          LIB=$(find build/vehicle-core-ios -name 'libror_vehicle_core.a' -print -quit)
+          test -n "$LIB"
+          echo "Built: $LIB"
+          file "$LIB"
+          lipo -info "$LIB"
+          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff' || true
+
+      - name: Upload iPhone vehicle-core library
+        uses: actions/upload-artifact@v4
+        with:
+          name: ror-vehicle-core-ios-arm64
+          path: build/vehicle-core-ios/**/libror_vehicle_core.a
+          if-no-files-found: error
