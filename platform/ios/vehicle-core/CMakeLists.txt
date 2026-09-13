@@ -4,11 +4,13 @@ project(RoRVehicleCore LANGUAGES CXX)
 
 add_library(ror_vehicle_core STATIC
     ../../../source/main/physics/Differentials.cpp
+    ../../../source/main/physics/collision/GroundFriction.cpp
 )
 
 target_include_directories(ror_vehicle_core
     PUBLIC
         ../../../source/main/physics
+        ../../../source/main/physics/collision
 )
 
 target_compile_features(ror_vehicle_core PUBLIC cxx_std_11)
