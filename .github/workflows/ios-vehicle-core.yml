@@ -4,14 +4,18 @@ on:
   push:
     branches: [ ios-port ]
     paths:
+      - 'source/main/physics/ApproxMath.h'
       - 'source/main/physics/Differentials.*'
       - 'source/main/physics/SimConstants.h'
+      - 'source/main/physics/collision/GroundFriction.*'
       - 'platform/ios/vehicle-core/**'
       - '.github/workflows/ios-vehicle-core.yml'
   pull_request:
     paths:
+      - 'source/main/physics/ApproxMath.h'
       - 'source/main/physics/Differentials.*'
       - 'source/main/physics/SimConstants.h'
+      - 'source/main/physics/collision/GroundFriction.*'
       - 'platform/ios/vehicle-core/**'
       - '.github/workflows/ios-vehicle-core.yml'
   workflow_dispatch:
@@ -41,7 +45,7 @@ jobs:
           cmake --build build/vehicle-core-native --config Release
           ctest --test-dir build/vehicle-core-native --output-on-failure
 
-      - name: Cross-compile real RoR differential physics for iPhone
+      - name: Cross-compile RoR vehicle physics for iPhone
         run: |
           cmake \
             -S platform/ios/vehicle-core \
@@ -61,7 +65,7 @@ jobs:
           echo "Built: $LIB"
           file "$LIB"
           lipo -info "$LIB"
-          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff' || true
+          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|Calc(Static|Stribeck)FrictionScale' || true
 
       - name: Upload iPhone vehicle-core library
         uses: actions/upload-artifact@v4
