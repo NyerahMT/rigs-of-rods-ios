@@ -42,6 +42,12 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(ror_wheel_probe PRIVATE ror_vehicle_core)
     target_compile_features(ror_wheel_probe PRIVATE cxx_std_11)
 
+    add_executable(ror_driven_axle_probe
+        tests/DrivenAxleProbe.cpp
+    )
+    target_link_libraries(ror_driven_axle_probe PRIVATE ror_vehicle_core)
+    target_compile_features(ror_driven_axle_probe PRIVATE cxx_std_11)
+
     add_test(
         NAME ror_vehicle_core_probe
         COMMAND ror_vehicle_core_probe
@@ -53,5 +59,9 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_test(
         NAME ror_wheel_probe
         COMMAND ror_wheel_probe
+    )
+    add_test(
+        NAME ror_driven_axle_probe
+        COMMAND ror_driven_axle_probe
     )
 endif()
