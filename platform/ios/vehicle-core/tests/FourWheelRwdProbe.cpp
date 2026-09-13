@@ -181,7 +181,6 @@ int main()
     std::vector<BeamLink> beams;
     beams.reserve(600);
 
-    // Main body lattice.
     NodeCoreState* fl_low  = AddNode(nodes, PhysicsVec3( 1.30f, 0.48f,  0.68f), 45.0f);
     NodeCoreState* fr_low  = AddNode(nodes, PhysicsVec3( 1.30f, 0.48f, -0.68f), 45.0f);
     NodeCoreState* rl_low  = AddNode(nodes, PhysicsVec3(-1.30f, 0.48f,  0.68f), 55.0f);
@@ -203,7 +202,6 @@ int main()
         }
     }
 
-    // Rear axle: non-steering, structurally located to the body.
     NodeCoreState* rear_left_a0  = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f,  0.80f), 30.0f);
     NodeCoreState* rear_left_a1  = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f,  1.00f), 30.0f);
     NodeCoreState* rear_right_a0 = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f, -1.00f), 30.0f);
@@ -218,15 +216,11 @@ int main()
     AddBeam(beams, rear_right_a1, rr_low,  600000.0f, 6000.0f);
     AddBeam(beams, rear_right_a1, rr_high, 600000.0f, 6000.0f);
 
-    // Dedicated front steering axes. Unlike the first prototype, these kingpin
-    // nodes sit through the wheel-center plane instead of borrowing a body corner.
     NodeCoreState* left_kp_low  = AddNode(nodes, PhysicsVec3(1.30f, 0.48f,  0.90f), 8.0f);
     NodeCoreState* left_kp_high = AddNode(nodes, PhysicsVec3(1.30f, 0.98f,  0.90f), 8.0f);
     NodeCoreState* right_kp_low  = AddNode(nodes, PhysicsVec3(1.30f, 0.48f, -0.90f), 8.0f);
     NodeCoreState* right_kp_high = AddNode(nodes, PhysicsVec3(1.30f, 0.98f, -0.90f), 8.0f);
 
-    // Triangulate the kingpins back into the chassis so they move with the body
-    // but define a clean local steering axis.
     AddBeam(beams, left_kp_low,  fl_low,  900000.0f, 9000.0f);
     AddBeam(beams, left_kp_low,  fl_high, 900000.0f, 9000.0f);
     AddBeam(beams, left_kp_low,  fr_low,  900000.0f, 9000.0f);
@@ -241,10 +235,10 @@ int main()
     AddBeam(beams, right_kp_high, fr_low,  900000.0f, 9000.0f);
     AddBeam(beams, right_kp_high, fl_high, 900000.0f, 9000.0f);
 
-    NodeCoreState* front_left_a0  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  0.80f), 22.0f); // inner steering arm
+    NodeCoreState* front_left_a0  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  0.80f), 22.0f);
     NodeCoreState* front_left_a1  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  1.00f), 22.0f);
     NodeCoreState* front_right_a0 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -1.00f), 22.0f);
-    NodeCoreState* front_right_a1 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -0.80f), 22.0f); // inner steering arm
+    NodeCoreState* front_right_a1 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -0.80f), 22.0f);
 
     AddBeam(beams, left_kp_low,  front_left_a0,  700000.0f, 7000.0f);
     AddBeam(beams, left_kp_high, front_left_a0,  700000.0f, 7000.0f);
@@ -258,8 +252,6 @@ int main()
     AddBeam(beams, right_kp_high, front_right_a1, 700000.0f, 7000.0f);
     AddBeam(beams, front_right_a0, front_right_a1, 700000.0f, 7000.0f);
 
-    // Rack endpoints sit close enough to the inner steering arms that the
-    // requested hydro range stays on a single, monotonic geometric branch.
     NodeCoreState* rack_left  = AddNode(nodes, PhysicsVec3(1.00f, 0.68f,  0.65f), 8.0f);
     NodeCoreState* rack_right = AddNode(nodes, PhysicsVec3(1.00f, 0.68f, -0.65f), 8.0f);
     AddBeam(beams, rack_left, fl_low,   900000.0f, 9000.0f);
@@ -269,8 +261,10 @@ int main()
     AddBeam(beams, rack_right, fr_high, 900000.0f, 9000.0f);
     AddBeam(beams, rack_right, fl_low,  900000.0f, 9000.0f);
 
-    BeamLink* left_hydro = AddBeam(beams, rack_left, front_left_a0, 300000.0f, 6000.0f);
-    BeamLink* right_hydro = AddBeam(beams, rack_right, front_right_a1, 300000.0f, 6000.0f);
+    // Steering hydros are intentionally much stiffer than tire beams so road
+    // forces cannot stretch the tie rods into huge toe/over-center excursions.
+    BeamLink* left_hydro = AddBeam(beams, rack_left, front_left_a0, 1500000.0f, 15000.0f);
+    BeamLink* right_hydro = AddBeam(beams, rack_right, front_right_a1, 1500000.0f, 15000.0f);
     const float left_hydro_reference = left_hydro->beam.rest_length;
     const float right_hydro_reference = right_hydro->beam.rest_length;
 
@@ -294,8 +288,9 @@ int main()
     float diff_delta_rotation = 0.0f;
     float steering_state = 0.0f;
     int four_tire_contact_steps = 0;
+    float left_presteer = 0.0f;
+    float right_presteer = 0.0f;
 
-    // Three seconds straight, then two seconds of powered steering.
     for (int step = 0; step < 10000; ++step)
     {
         bool fl_contact = false;
@@ -322,17 +317,18 @@ int main()
         steering_state = StepHydroSteeringState(
             steering_state, steering_command, road_speed, true, 1.0f, 1.0f, PHYSICS_DT);
         left_hydro->beam.rest_length = CalcHydroTargetLength(
-            left_hydro_reference, steering_state, 0.12f, 0.12f, 0.12f);
+            left_hydro_reference, steering_state, 0.10f, 0.10f, 0.10f);
         right_hydro->beam.rest_length = CalcHydroTargetLength(
-            right_hydro_reference, steering_state, -0.12f, 0.12f, 0.12f);
+            right_hydro_reference, steering_state, -0.10f, 0.10f, 0.10f);
 
         DifferentialData diff{};
         diff.speed[0] = rear_left.wheel.speed;
         diff.speed[1] = rear_right.wheel.speed;
         diff.delta_rotation = diff_delta_rotation;
-        // CalcDifferentials receives clutch/driveline torque after the gearbox;
-        // 3200 N*m represents a moderate low-gear RWD driveline, not crank torque.
-        diff.in_torque = 3200.0f;
+        // Approximate clutch engagement instead of applying maximum driveline
+        // torque on the first 0.5 ms simulation step.
+        const float clutch_ramp = std::min(1.0f, static_cast<float>(step) / 1000.0f);
+        diff.in_torque = 3200.0f * clutch_ramp;
         diff.dt = PHYSICS_DT;
         Differential::CalcLockedDiff(diff);
         diff_delta_rotation = diff.delta_rotation;
@@ -353,6 +349,8 @@ int main()
         if (step == 5999)
         {
             com_before_steer = CenterOfMass(nodes);
+            left_presteer = SteeringAngle(front_left);
+            right_presteer = SteeringAngle(front_right);
         }
     }
 
@@ -368,11 +366,15 @@ int main()
               << " m, horizontal=" << final_horizontal_displacement
               << " m, contacts=" << four_tire_contact_steps
               << ", rear speeds=" << rear_left.wheel.speed << "/" << rear_right.wheel.speed
-              << " m/s, steer=" << (left_steer * 180.0f / PI) << "/"
+              << " m/s, presteer=" << (left_presteer * 180.0f / PI) << "/"
+              << (right_presteer * 180.0f / PI) << " deg, steer="
+              << (left_steer * 180.0f / PI) << "/"
               << (right_steer * 180.0f / PI) << " deg\n";
 
     Require(four_tire_contact_steps > 500, "all four deformable tires establish road contact together");
     Require(straight_driven_distance > 1.5f, "rear-wheel drive propels the complete four-wheel chassis before steering");
+    Require(std::fabs(left_presteer) < 3.0f * PI / 180.0f, "left front remains near straight-ahead under acceleration");
+    Require(std::fabs(right_presteer) < 3.0f * PI / 180.0f, "right front remains near straight-ahead under acceleration");
     Require(std::fabs(rear_left.wheel.speed - rear_right.wheel.speed) < 0.5f, "locked rear diff keeps wheel speeds coupled");
     Require(std::fabs(left_steer) > 2.0f * PI / 180.0f, "left front structural carrier steers under hydro command");
     Require(std::fabs(right_steer) > 2.0f * PI / 180.0f, "right front structural carrier steers under hydro command");
