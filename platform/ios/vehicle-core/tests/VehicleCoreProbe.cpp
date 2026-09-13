@@ -1,3 +1,4 @@
+#include "BeamPhysics.h"
 #include "Differentials.h"
 #include "GroundFriction.h"
 #include "SimConstants.h"
@@ -32,6 +33,12 @@ DifferentialData MakeData(float speed0, float speed1, float torque)
     data.in_torque = torque;
     data.dt = PHYSICS_DT;
     return data;
+}
+
+float Distance(const PhysicsVec3& a, const PhysicsVec3& b)
+{
+    const PhysicsVec3 d = a - b;
+    return std::sqrt(d.squaredLength());
 }
 }
 
@@ -96,7 +103,43 @@ int main()
         Require(sliding_low < 0.0f && sliding_high < 0.0f, "sliding friction opposes slip");
     }
 
+    {
+        NodeCoreState anchor{};
+        anchor.position = PhysicsVec3(0.0f, 0.0f, 0.0f);
+        anchor.mass = 50.0f;
+        anchor.immovable = true;
+
+        NodeCoreState moving{};
+        moving.position = PhysicsVec3(1.25f, 0.0f, 0.0f);
+        moving.mass = 50.0f;
+
+        BeamCoreState beam{};
+        beam.rest_length = 1.0f;
+        beam.spring = 20000.0f;
+        beam.damping = 1500.0f;
+
+        ApplyBeamForce(anchor, moving, beam);
+        Require(beam.stress < 0.0f, "stretched beam produces restoring tension");
+        Require(NearlyEqual(anchor.force.x + moving.force.x, 0.0f, 0.05f), "beam forces are equal and opposite");
+
+        anchor.force = PhysicsVec3();
+        moving.force = PhysicsVec3();
+
+        const float initial_error = std::fabs(Distance(anchor.position, moving.position) - beam.rest_length);
+        for (int step = 0; step < 4000; ++step)
+        {
+            IntegrateNode(anchor, 0.0f, PHYSICS_DT);
+            IntegrateNode(moving, 0.0f, PHYSICS_DT);
+            ApplyBeamForce(anchor, moving, beam);
+        }
+
+        const float final_error = std::fabs(Distance(anchor.position, moving.position) - beam.rest_length);
+        Require(std::isfinite(final_error), "node/beam integration remains finite");
+        Require(final_error < initial_error * 0.15f, "damped beam returns toward rest length");
+        Require(std::fabs(moving.velocity.x) < 0.2f, "damped beam settles instead of exploding");
+    }
+
     std::cout << "RoR vehicle-core probe passed at " << (1.0f / PHYSICS_DT)
-              << " Hz physics cadence with differential and ground-friction checks.\n";
+              << " Hz with differential, ground-friction, and node/beam dynamics checks.\n";
     return EXIT_SUCCESS;
 }
