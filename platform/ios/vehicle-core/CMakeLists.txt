@@ -5,6 +5,7 @@ project(RoRVehicleCore LANGUAGES CXX)
 add_library(ror_vehicle_core STATIC
     ../../../source/main/physics/BeamPhysics.cpp
     ../../../source/main/physics/Differentials.cpp
+    ../../../source/main/physics/WheelPhysics.cpp
     ../../../source/main/physics/collision/GroundContact.cpp
     ../../../source/main/physics/collision/GroundFriction.cpp
 )
@@ -35,6 +36,12 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(ror_chassis_probe PRIVATE ror_vehicle_core)
     target_compile_features(ror_chassis_probe PRIVATE cxx_std_11)
 
+    add_executable(ror_wheel_probe
+        tests/WheelProbe.cpp
+    )
+    target_link_libraries(ror_wheel_probe PRIVATE ror_vehicle_core)
+    target_compile_features(ror_wheel_probe PRIVATE cxx_std_11)
+
     add_test(
         NAME ror_vehicle_core_probe
         COMMAND ror_vehicle_core_probe
@@ -42,5 +49,9 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_test(
         NAME ror_chassis_probe
         COMMAND ror_chassis_probe
+    )
+    add_test(
+        NAME ror_wheel_probe
+        COMMAND ror_wheel_probe
     )
 endif()
