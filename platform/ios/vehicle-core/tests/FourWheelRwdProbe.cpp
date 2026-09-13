@@ -179,8 +179,9 @@ int main()
 {
     std::deque<NodeCoreState> nodes;
     std::vector<BeamLink> beams;
-    beams.reserve(500);
+    beams.reserve(600);
 
+    // Main body lattice.
     NodeCoreState* fl_low  = AddNode(nodes, PhysicsVec3( 1.30f, 0.48f,  0.68f), 45.0f);
     NodeCoreState* fr_low  = AddNode(nodes, PhysicsVec3( 1.30f, 0.48f, -0.68f), 45.0f);
     NodeCoreState* rl_low  = AddNode(nodes, PhysicsVec3(-1.30f, 0.48f,  0.68f), 55.0f);
@@ -202,6 +203,7 @@ int main()
         }
     }
 
+    // Rear axle: non-steering, structurally located to the body.
     NodeCoreState* rear_left_a0  = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f,  0.80f), 30.0f);
     NodeCoreState* rear_left_a1  = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f,  1.00f), 30.0f);
     NodeCoreState* rear_right_a0 = AddNode(nodes, PhysicsVec3(-1.30f, 0.62f, -1.00f), 30.0f);
@@ -216,25 +218,50 @@ int main()
     AddBeam(beams, rear_right_a1, rr_low,  600000.0f, 6000.0f);
     AddBeam(beams, rear_right_a1, rr_high, 600000.0f, 6000.0f);
 
-    NodeCoreState* front_left_a0  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  0.80f), 22.0f);
+    // Dedicated front steering axes. Unlike the first prototype, these kingpin
+    // nodes sit through the wheel-center plane instead of borrowing a body corner.
+    NodeCoreState* left_kp_low  = AddNode(nodes, PhysicsVec3(1.30f, 0.48f,  0.90f), 8.0f);
+    NodeCoreState* left_kp_high = AddNode(nodes, PhysicsVec3(1.30f, 0.98f,  0.90f), 8.0f);
+    NodeCoreState* right_kp_low  = AddNode(nodes, PhysicsVec3(1.30f, 0.48f, -0.90f), 8.0f);
+    NodeCoreState* right_kp_high = AddNode(nodes, PhysicsVec3(1.30f, 0.98f, -0.90f), 8.0f);
+
+    // Triangulate the kingpins back into the chassis so they move with the body
+    // but define a clean local steering axis.
+    AddBeam(beams, left_kp_low,  fl_low,  900000.0f, 9000.0f);
+    AddBeam(beams, left_kp_low,  fl_high, 900000.0f, 9000.0f);
+    AddBeam(beams, left_kp_low,  fr_low,  900000.0f, 9000.0f);
+    AddBeam(beams, left_kp_high, fl_high, 900000.0f, 9000.0f);
+    AddBeam(beams, left_kp_high, fl_low,  900000.0f, 9000.0f);
+    AddBeam(beams, left_kp_high, fr_high, 900000.0f, 9000.0f);
+
+    AddBeam(beams, right_kp_low,  fr_low,  900000.0f, 9000.0f);
+    AddBeam(beams, right_kp_low,  fr_high, 900000.0f, 9000.0f);
+    AddBeam(beams, right_kp_low,  fl_low,  900000.0f, 9000.0f);
+    AddBeam(beams, right_kp_high, fr_high, 900000.0f, 9000.0f);
+    AddBeam(beams, right_kp_high, fr_low,  900000.0f, 9000.0f);
+    AddBeam(beams, right_kp_high, fl_high, 900000.0f, 9000.0f);
+
+    NodeCoreState* front_left_a0  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  0.80f), 22.0f); // inner steering arm
     NodeCoreState* front_left_a1  = AddNode(nodes, PhysicsVec3(1.30f, 0.68f,  1.00f), 22.0f);
     NodeCoreState* front_right_a0 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -1.00f), 22.0f);
-    NodeCoreState* front_right_a1 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -0.80f), 22.0f);
+    NodeCoreState* front_right_a1 = AddNode(nodes, PhysicsVec3(1.30f, 0.68f, -0.80f), 22.0f); // inner steering arm
 
-    AddBeam(beams, fl_low,  front_left_a0,  700000.0f, 7000.0f);
-    AddBeam(beams, fl_high, front_left_a0,  700000.0f, 7000.0f);
-    AddBeam(beams, fl_low,  front_left_a1,  700000.0f, 7000.0f);
-    AddBeam(beams, fl_high, front_left_a1,  700000.0f, 7000.0f);
+    AddBeam(beams, left_kp_low,  front_left_a0,  700000.0f, 7000.0f);
+    AddBeam(beams, left_kp_high, front_left_a0,  700000.0f, 7000.0f);
+    AddBeam(beams, left_kp_low,  front_left_a1,  700000.0f, 7000.0f);
+    AddBeam(beams, left_kp_high, front_left_a1,  700000.0f, 7000.0f);
     AddBeam(beams, front_left_a0, front_left_a1, 700000.0f, 7000.0f);
 
-    AddBeam(beams, fr_low,  front_right_a0, 700000.0f, 7000.0f);
-    AddBeam(beams, fr_high, front_right_a0, 700000.0f, 7000.0f);
-    AddBeam(beams, fr_low,  front_right_a1, 700000.0f, 7000.0f);
-    AddBeam(beams, fr_high, front_right_a1, 700000.0f, 7000.0f);
+    AddBeam(beams, right_kp_low,  front_right_a0, 700000.0f, 7000.0f);
+    AddBeam(beams, right_kp_high, front_right_a0, 700000.0f, 7000.0f);
+    AddBeam(beams, right_kp_low,  front_right_a1, 700000.0f, 7000.0f);
+    AddBeam(beams, right_kp_high, front_right_a1, 700000.0f, 7000.0f);
     AddBeam(beams, front_right_a0, front_right_a1, 700000.0f, 7000.0f);
 
-    NodeCoreState* rack_left  = AddNode(nodes, PhysicsVec3(1.02f, 0.68f,  0.20f), 20.0f);
-    NodeCoreState* rack_right = AddNode(nodes, PhysicsVec3(1.02f, 0.68f, -0.20f), 20.0f);
+    // Rack endpoints sit close enough to the inner steering arms that the
+    // requested hydro range stays on a single, monotonic geometric branch.
+    NodeCoreState* rack_left  = AddNode(nodes, PhysicsVec3(1.00f, 0.68f,  0.65f), 8.0f);
+    NodeCoreState* rack_right = AddNode(nodes, PhysicsVec3(1.00f, 0.68f, -0.65f), 8.0f);
     AddBeam(beams, rack_left, fl_low,   900000.0f, 9000.0f);
     AddBeam(beams, rack_left, fl_high,  900000.0f, 9000.0f);
     AddBeam(beams, rack_left, fr_low,   900000.0f, 9000.0f);
@@ -242,8 +269,8 @@ int main()
     AddBeam(beams, rack_right, fr_high, 900000.0f, 9000.0f);
     AddBeam(beams, rack_right, fl_low,  900000.0f, 9000.0f);
 
-    BeamLink* left_hydro = AddBeam(beams, rack_left,  front_left_a1,  300000.0f, 6000.0f);
-    BeamLink* right_hydro = AddBeam(beams, rack_right, front_right_a0, 300000.0f, 6000.0f);
+    BeamLink* left_hydro = AddBeam(beams, rack_left, front_left_a0, 300000.0f, 6000.0f);
+    BeamLink* right_hydro = AddBeam(beams, rack_right, front_right_a1, 300000.0f, 6000.0f);
     const float left_hydro_reference = left_hydro->beam.rest_length;
     const float right_hydro_reference = right_hydro->beam.rest_length;
 
@@ -268,7 +295,8 @@ int main()
     float steering_state = 0.0f;
     int four_tire_contact_steps = 0;
 
-    for (int step = 0; step < 8000; ++step)
+    // Three seconds straight, then two seconds of powered steering.
+    for (int step = 0; step < 10000; ++step)
     {
         bool fl_contact = false;
         bool fr_contact = false;
@@ -289,14 +317,14 @@ int main()
             Require(Finite(node.position) && Finite(node.velocity), "four-wheel vehicle state remains finite");
         }
 
-        const float steering_command = (step < 4000) ? 0.0f : 0.70f;
+        const float steering_command = (step < 6000) ? 0.0f : 0.70f;
         const float road_speed = 0.5f * (std::fabs(rear_left.wheel.speed) + std::fabs(rear_right.wheel.speed));
         steering_state = StepHydroSteeringState(
             steering_state, steering_command, road_speed, true, 1.0f, 1.0f, PHYSICS_DT);
         left_hydro->beam.rest_length = CalcHydroTargetLength(
-            left_hydro_reference, steering_state, 0.14f, 0.20f, 0.20f);
+            left_hydro_reference, steering_state, 0.12f, 0.12f, 0.12f);
         right_hydro->beam.rest_length = CalcHydroTargetLength(
-            right_hydro_reference, steering_state, -0.14f, 0.20f, 0.20f);
+            right_hydro_reference, steering_state, -0.12f, 0.12f, 0.12f);
 
         DifferentialData diff{};
         diff.speed[0] = rear_left.wheel.speed;
@@ -322,7 +350,7 @@ int main()
             Require(std::isfinite(link.beam.stress), "four-wheel beam stress remains finite");
         }
 
-        if (step == 3999)
+        if (step == 5999)
         {
             com_before_steer = CenterOfMass(nodes);
         }
@@ -348,6 +376,8 @@ int main()
     Require(std::fabs(rear_left.wheel.speed - rear_right.wheel.speed) < 0.5f, "locked rear diff keeps wheel speeds coupled");
     Require(std::fabs(left_steer) > 2.0f * PI / 180.0f, "left front structural carrier steers under hydro command");
     Require(std::fabs(right_steer) > 2.0f * PI / 180.0f, "right front structural carrier steers under hydro command");
+    Require(std::fabs(left_steer) < 45.0f * PI / 180.0f, "left steering carrier does not pass over-center");
+    Require(std::fabs(right_steer) < 45.0f * PI / 180.0f, "right steering carrier does not pass over-center");
     Require(left_steer * right_steer > 0.0f, "mirrored front linkages steer in the same vehicle direction");
     Require(std::fabs(AverageRadius(front_left)  - front_left.wheel.radius)  < 0.05f, "front-left tire retains radius");
     Require(std::fabs(AverageRadius(front_right) - front_right.wheel.radius) < 0.05f, "front-right tire retains radius");
