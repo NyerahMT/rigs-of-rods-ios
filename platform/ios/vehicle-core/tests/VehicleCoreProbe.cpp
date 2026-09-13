@@ -1,4 +1,5 @@
 #include "Differentials.h"
+#include "GroundFriction.h"
 #include "SimConstants.h"
 
 #include <cmath>
@@ -75,6 +76,27 @@ int main()
         Require(diff.GetActiveDiffType() == VISCOUS_DIFF, "diff mode toggles");
     }
 
-    std::cout << "RoR vehicle-core probe passed at " << (1.0f / PHYSICS_DT) << " Hz physics cadence.\n";
+    {
+        GroundFrictionParams asphalt{};
+        asphalt.adhesion_velocity = 0.5f;
+        asphalt.static_friction = 1.2f;
+        asphalt.sliding_friction = 0.85f;
+        asphalt.hydrodynamic_friction = 0.02f;
+        asphalt.stribeck_velocity = 0.35f;
+        asphalt.stribeck_alpha = 2.0f;
+
+        const float static_low = CalcStaticFrictionScale(0.05f, asphalt);
+        const float static_high = CalcStaticFrictionScale(0.40f, asphalt);
+        const float sliding_low = CalcStribeckFrictionScale(0.40f, asphalt);
+        const float sliding_high = CalcStribeckFrictionScale(8.0f, asphalt);
+
+        Require(std::isfinite(static_low) && std::isfinite(static_high), "static friction remains finite");
+        Require(std::isfinite(sliding_low) && std::isfinite(sliding_high), "Stribeck friction remains finite");
+        Require(static_low < 0.0f && static_high < static_low, "static friction increasingly opposes slip");
+        Require(sliding_low < 0.0f && sliding_high < 0.0f, "sliding friction opposes slip");
+    }
+
+    std::cout << "RoR vehicle-core probe passed at " << (1.0f / PHYSICS_DT)
+              << " Hz physics cadence with differential and ground-friction checks.\n";
     return EXIT_SUCCESS;
 }
