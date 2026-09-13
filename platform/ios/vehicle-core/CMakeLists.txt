@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(RoRVehicleCore LANGUAGES CXX)
 
 add_library(ror_vehicle_core STATIC
+    ../../../source/main/physics/BeamPhysics.cpp
     ../../../source/main/physics/Differentials.cpp
     ../../../source/main/physics/collision/GroundFriction.cpp
 )
