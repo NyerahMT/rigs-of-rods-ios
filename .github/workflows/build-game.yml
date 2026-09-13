@@ -1,7 +1,10 @@
 ---
 name: Build game
 
-on: [ push, pull_request ]
+on:
+  push:
+    branches-ignore: [ ios-port ]
+  pull_request:
 
 jobs:
   build-gcc:
