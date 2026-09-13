@@ -2,6 +2,7 @@
 #include "GroundContact.h"
 #include "SimConstants.h"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdlib>
