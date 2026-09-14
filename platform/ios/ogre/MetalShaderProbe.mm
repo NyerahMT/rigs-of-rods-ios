@@ -27,9 +27,6 @@ static NSString* ResolveUnifiedInclude(NSString* shader, NSString* header)
         exit(2);
     }
 
-    // Ogre::HighLevelGpuProgram::_resolveIncludes() replaces resource includes
-    // before Metal sees the source. Do the same here instead of asking the
-    // command-line Metal compiler to interpret an OGRE runtime shader directly.
     NSString* replacement = [NSString stringWithFormat:
         @"#line 1 \"OgreUnifiedShader.h\"\n%@\n#line 2 \"RoRGame.metal\"", header];
     return [shader stringByReplacingCharactersInRange:range withString:replacement];
@@ -76,11 +73,12 @@ static id<MTLLibrary> CompileStage(id<MTLDevice> device,
 static void SetAttribute(MTLVertexDescriptor* vd,
                          NSUInteger index,
                          MTLVertexFormat format,
-                         NSUInteger offset)
+                         NSUInteger offset,
+                         NSUInteger bufferIndex)
 {
     vd.attributes[index].format = format;
     vd.attributes[index].offset = offset;
-    vd.attributes[index].bufferIndex = 0;
+    vd.attributes[index].bufferIndex = bufferIndex;
 }
 
 static void RequirePipeline(id<MTLDevice> device,
@@ -131,35 +129,43 @@ int main(int argc, char** argv)
         NSString* source = ResolveUnifiedInclude(ReadUTF8(shaderPath), ReadUTF8(headerPath));
 
         id<MTLLibrary> vertexLibrary = CompileStage(device, source, @"OGRE_VERTEX_SHADER",
-            @[@"ror_game_vp", @"ror_prop_vp", @"ror_vehicle_vp"]);
+            @[@"ror_game_vp", @"ror_prop_vp", @"ror_terrain_vp", @"ror_vehicle_vp"]);
         id<MTLLibrary> fragmentLibrary = CompileStage(device, source, @"OGRE_FRAGMENT_SHADER",
-            @[@"ror_game_fp", @"ror_prop_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
+            @[@"ror_game_fp", @"ror_prop_fp", @"ror_terrain_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
 
-        // Mirror the semantic locations used by OgreUnifiedShader.h / MetalProgram.
-        // Most importantly, the stock-prop layout intentionally omits COLOR0 (3).
-        // This recreates the #97 on-device failure class: a prop shader that asks
-        // for COLOR0 cannot be linked against a normal POSITION/NORMAL/TEXCOORD mesh.
         MTLVertexDescriptor* gameVD = [MTLVertexDescriptor vertexDescriptor];
-        SetAttribute(gameVD, 0, MTLVertexFormatFloat3, 0);   // POSITION
-        SetAttribute(gameVD, 3, MTLVertexFormatFloat4, 16);  // COLOR0
+        SetAttribute(gameVD, 0, MTLVertexFormatFloat3, 0, 0);   // POSITION
+        SetAttribute(gameVD, 3, MTLVertexFormatFloat4, 16, 0);  // COLOR0
         gameVD.layouts[0].stride = 32;
         RequirePipeline(device, vertexLibrary, @"ror_game_vp", fragmentLibrary, @"ror_game_fp", gameVD, @"RoR/Game");
 
         MTLVertexDescriptor* propVD = [MTLVertexDescriptor vertexDescriptor];
-        SetAttribute(propVD, 0, MTLVertexFormatFloat3, 0);   // POSITION
-        SetAttribute(propVD, 2, MTLVertexFormatFloat3, 12);  // NORMAL
-        SetAttribute(propVD, 8, MTLVertexFormatFloat2, 24);  // TEXCOORD0
+        SetAttribute(propVD, 0, MTLVertexFormatFloat3, 0, 0);   // POSITION
+        SetAttribute(propVD, 2, MTLVertexFormatFloat3, 12, 0);  // NORMAL
+        SetAttribute(propVD, 8, MTLVertexFormatFloat2, 24, 0);  // TEXCOORD0
         propVD.layouts[0].stride = 32;
         RequirePipeline(device, vertexLibrary, @"ror_prop_vp", fragmentLibrary, @"ror_prop_fp", propVD, @"RoR/Prop-no-COLOR0");
 
+        // This mirrors OGRE Terrain's compatibility (non-compressed) vertex
+        // declaration: buffer 0 = float3 POSITION + float2 TEXCOORD0, buffer 1
+        // = float2 TEXCOORD1 LOD delta. Our flat Simple2 shader intentionally
+        // ignores the second stream but the actual PSO still sees the layout.
+        MTLVertexDescriptor* terrainVD = [MTLVertexDescriptor vertexDescriptor];
+        SetAttribute(terrainVD, 0, MTLVertexFormatFloat3, 0, 0);   // POSITION
+        SetAttribute(terrainVD, 8, MTLVertexFormatFloat2, 12, 0);  // TEXCOORD0
+        SetAttribute(terrainVD, 9, MTLVertexFormatFloat2, 0, 1);   // TEXCOORD1 / LOD delta
+        terrainVD.layouts[0].stride = 20;
+        terrainVD.layouts[1].stride = 8;
+        RequirePipeline(device, vertexLibrary, @"ror_terrain_vp", fragmentLibrary, @"ror_terrain_fp", terrainVD, @"RoR/Simple2Terrain");
+
         MTLVertexDescriptor* vehicleVD = [MTLVertexDescriptor vertexDescriptor];
-        SetAttribute(vehicleVD, 0, MTLVertexFormatFloat3, 0);   // POSITION
-        SetAttribute(vehicleVD, 3, MTLVertexFormatFloat4, 16);  // COLOR0
-        SetAttribute(vehicleVD, 8, MTLVertexFormatFloat2, 32);  // TEXCOORD0
+        SetAttribute(vehicleVD, 0, MTLVertexFormatFloat3, 0, 0);   // POSITION
+        SetAttribute(vehicleVD, 3, MTLVertexFormatFloat4, 16, 0);  // COLOR0
+        SetAttribute(vehicleVD, 8, MTLVertexFormatFloat2, 32, 0);  // TEXCOORD0
         vehicleVD.layouts[0].stride = 48;
         RequirePipeline(device, vertexLibrary, @"ror_vehicle_vp", fragmentLibrary, @"ror_vehicle_fp", vehicleVD, @"RoR/DAFOfficial");
 
-        printf("OGRE-style Metal runtime shader + PSO probes passed.\n");
+        printf("OGRE-style Metal runtime shader + prop/terrain/vehicle PSO probes passed.\n");
         return 0;
     }
 }
