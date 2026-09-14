@@ -1,7 +1,7 @@
 /*
     Visual geometry extraction for the iOS OGRE bring-up.
     This keeps rendering data separate from the portable physics parser while
-    preserving the authored RoR cab triangles and wheel definitions.
+    preserving the authored RoR cab triangles, texture coordinates, and wheel definitions.
 */
 
 #pragma once
@@ -13,11 +13,21 @@
 namespace RoR {
 namespace IOSOgre {
 
+struct TextureCoord
+{
+    float u = 0.0f;
+    float v = 0.0f;
+};
+
 struct CabTriangle
 {
     std::size_t a = 0;
     std::size_t b = 0;
     std::size_t c = 0;
+    TextureCoord uv_a;
+    TextureCoord uv_b;
+    TextureCoord uv_c;
+    bool has_uv = false;
     bool contact = false;
 };
 
