@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <objc/runtime.h>
 
 @interface RoROgreRuntimeDiagnostics : NSObject
 @end
