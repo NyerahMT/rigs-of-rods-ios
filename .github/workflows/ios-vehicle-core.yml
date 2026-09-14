@@ -36,7 +36,7 @@ on:
 
 jobs:
   vehicle-core:
-    name: RoR vehicle physics + OGRE Metal / iPhone ARM64
+    name: RoR physics + OGRE Metal game view / iPhone ARM64
     runs-on: macos-15
 
     steps:
@@ -54,6 +54,8 @@ jobs:
           test -s platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
           grep -q '^Daf Semi truck$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
           grep -q '10000.0,  0.0, b6b0UID-tracks/semi' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
+          grep -q '^submesh$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
+          grep -q '^cab$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
 
       - name: Build and run native behavior probes
         run: |
@@ -64,6 +66,19 @@ jobs:
             -DBUILD_TESTING=ON
           cmake --build build/vehicle-core-native --config Release
           ctest --test-dir build/vehicle-core-native --output-on-failure
+
+      - name: Verify authored OGRE visual extraction
+        run: |
+          mkdir -p build/ogre-visual-probe
+          clang++ -std=c++17 -O2 \
+            -Isource/main/resources/rig_def_fileformat \
+            -Iplatform/ios/ogre \
+            platform/ios/ogre/AuthoredVisualGeometry.cpp \
+            source/main/resources/rig_def_fileformat/PortableRigDef.cpp \
+            platform/ios/ogre/VisualGeometryProbe.cpp \
+            -o build/ogre-visual-probe/visual_geometry_probe
+          build/ogre-visual-probe/visual_geometry_probe \
+            platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
 
       - name: Cross-compile RoR vehicle physics for iPhone
         run: |
@@ -82,10 +97,9 @@ jobs:
         run: |
           LIB=$(find build/vehicle-core-ios -name 'libror_vehicle_core.a' -print -quit)
           test -n "$LIB"
-          echo "Built: $LIB"
           file "$LIB"
           lipo -info "$LIB"
-          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|Calc(Static|Stribeck)FrictionScale|CalcBeamStress|ApplyBeamForce|IntegrateNode|CalcGroundContact|ApplyFlatGroundContact|CalcWheelBrakeTorque|StepWheelNodes|ApplyWheelReactionTorque|StepHydroSteeringState|CalcHydroTargetLength' || true
+          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|CalcBeamStress|ApplyBeamForce|IntegrateNode|StepWheelNodes|StepHydroSteeringState' || true
 
       - name: Build pinned OGRE 14 Metal for iPhone
         run: |
@@ -102,29 +116,34 @@ jobs:
           xcrun --sdk iphoneos nm -gU "$OGRE_METAL" | grep -E 'MetalPlugin|MetalRenderSystem' | head -20
           test "$(cat build/ogre-ios/OGRE_PINNED_COMMIT.txt)" = '5cccbeec824798629931cfd9184bde729610e30d'
 
-      - name: Build unsigned authored-vehicle iPhone IPA
+      - name: Build unsigned OGRE game-view iPhone IPA
         run: |
-          platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app
+          platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
 
-      - name: Verify IPA bundle and authored truck
+      - name: Verify OGRE IPA bundle
         run: |
           test -f build/ios-app/RoRIOSProbe.ipa
           rm -rf build/ipa-verify
           mkdir -p build/ipa-verify
           unzip -q build/ios-app/RoRIOSProbe.ipa -d build/ipa-verify
-          test -f build/ipa-verify/Payload/RoRIOSProbe.app/RoRIOSProbe
-          test -f build/ipa-verify/Payload/RoRIOSProbe.app/Info.plist
-          test -s build/ipa-verify/Payload/RoRIOSProbe.app/Content/dafsemi/b6b0UID-semi.truck
-          grep -q '^Daf Semi truck$' build/ipa-verify/Payload/RoRIOSProbe.app/Content/dafsemi/b6b0UID-semi.truck
-          file build/ipa-verify/Payload/RoRIOSProbe.app/RoRIOSProbe
-          lipo -info build/ipa-verify/Payload/RoRIOSProbe.app/RoRIOSProbe
-          plutil -lint build/ipa-verify/Payload/RoRIOSProbe.app/Info.plist
+          APP=build/ipa-verify/Payload/RoRIOSProbe.app
+          test -f "$APP/RoRIOSProbe"
+          test -f "$APP/Info.plist"
+          test -s "$APP/Content/dafsemi/b6b0UID-semi.truck"
+          test -s "$APP/OgreMedia/Main/RoRGame.metal"
+          test -s "$APP/OgreMedia/Main/OgreUnifiedShader.h"
+          test -s "$APP/OgreMedia/Main/DefaultShaders.metal"
+          grep -q '^Daf Semi truck$' "$APP/Content/dafsemi/b6b0UID-semi.truck"
+          file "$APP/RoRIOSProbe"
+          lipo -info "$APP/RoRIOSProbe" | grep -q arm64
+          plutil -lint "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^0.2$'
           du -h build/ios-app/RoRIOSProbe.ipa
 
-      - name: Upload unsigned authored-vehicle iPhone IPA
+      - name: Upload unsigned OGRE game-view iPhone IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ror-ios-authored-vehicle-ipa
+          name: ror-ios-ogre-gameview-ipa
           path: build/ios-app/RoRIOSProbe.ipa
           if-no-files-found: error
 
