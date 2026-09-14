@@ -115,7 +115,7 @@ cmake \
     -DOGRE_BUILD_PLUGIN_EXRCODEC=OFF \
     -DOGRE_BUILD_PLUGIN_STBI=OFF \
     -DOGRE_CONFIG_ENABLE_ZIP=OFF \
-    -DOGRE_CONFIG_ENABLE_DDS=OFF \
+    -DOGRE_CONFIG_ENABLE_DDS=ON \
     -DOGRE_CONFIG_ENABLE_PVRTC=OFF \
     -DOGRE_CONFIG_ENABLE_ETC=OFF \
     -DOGRE_CONFIG_ENABLE_ASTC=OFF \
@@ -141,4 +141,4 @@ for LIB in "$OGRE_MAIN" "$OGRE_METAL"; do
 done
 
 printf '%s\n' "$OGRE_COMMIT" > "$OGRE_BUILD/OGRE_PINNED_COMMIT.txt"
-echo "OGRE 14.6 / Metal iPhone build complete."
+echo "OGRE 14.6 / Metal iPhone build complete (DDS codec enabled for RoR content)."
