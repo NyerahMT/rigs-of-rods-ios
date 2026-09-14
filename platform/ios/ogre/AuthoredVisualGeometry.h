@@ -2,7 +2,7 @@
     Visual geometry extraction for the iOS OGRE bring-up.
     This keeps rendering data separate from the portable physics parser while
     preserving the authored RoR cab triangles, texture coordinates, wheel definitions,
-    and prop attachments.
+    prop attachments, and flexbody attachment/forset metadata.
 */
 
 #pragma once
@@ -54,11 +54,32 @@ struct PropVisual
     std::string mesh_name;
 };
 
+// Mirrors the authored fields consumed by upstream ActorSpawner::ProcessFlexbody().
+// `node_indices` is RoR's `forset`: the candidate rig nodes used to bind each
+// mesh vertex to a deforming local basis. Keeping this data explicit lets the
+// iOS renderer use the same nearest-node locator algorithm as FlexBody.cpp.
+struct FlexBodyVisual
+{
+    std::size_t node_ref = 0;
+    std::size_t node_x = 0;
+    std::size_t node_y = 0;
+    float offset_x = 0.0f;
+    float offset_y = 0.0f;
+    float offset_z = 0.0f;
+    float rot_x_degrees = 0.0f;
+    float rot_y_degrees = 0.0f;
+    float rot_z_degrees = 0.0f;
+    std::string mesh_name;
+    std::vector<std::size_t> node_indices;
+    bool has_forvert_directives = false;
+};
+
 struct AuthoredVisualGeometry
 {
     std::vector<CabTriangle> cab_triangles;
     std::vector<WheelVisual> wheels;
     std::vector<PropVisual> props;
+    std::vector<FlexBodyVisual> flexbodies;
     std::vector<std::string> warnings;
 };
 
