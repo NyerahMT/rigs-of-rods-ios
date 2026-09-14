@@ -89,10 +89,15 @@ test -s "$APP_DIR/OgreMedia/Main/HLSL_SM4Support.hlsl"
 test -s "$APP_DIR/OgreMedia/Main/GLSL_GL3Support.glsl"
 
 # Static linking should leave concrete OGRE/Metal and native RoR parser symbols
-# in the final image. The launch probe also executes ParseRigDef() on-device.
-xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' | head -20
-xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | c++filt | grep -q 'RoR::IOSNative::ParseRigDef'
-xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | c++filt | grep -q 'RigDef::Parser::ProcessRawLine'
+# in the final image. Capture nm output before filtering so LLVM's nm never gets
+# SIGPIPE from grep/head under `set -o pipefail`.
+NM_RAW="$OUT_DIR/${APP_NAME}.nm.txt"
+NM_DEMANGLED="$OUT_DIR/${APP_NAME}.nm.demangled.txt"
+xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" > "$NM_RAW"
+c++filt < "$NM_RAW" > "$NM_DEMANGLED"
+grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' "$NM_RAW" | sed -n '1,20p'
+grep -q 'RoR::IOSNative::ParseRigDef' "$NM_DEMANGLED"
+grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
 
 (
     cd "$OUT_DIR"
