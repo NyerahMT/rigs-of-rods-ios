@@ -271,6 +271,17 @@ private:
         fp->setSourceFile("RoRGame.metal"); fp->setParameter("entry_point", "ror_game_fp"); fp->setParameter("shader_reflection_pair_hint", "RoRGameVP");
         vp->load(); fp->load();
 
+        // Legacy RoR prop meshes have their own vertex declarations and are not
+        // guaranteed to contain COLOR0. The ManualObject shader above requires
+        // COLOR0, which makes Metal reject the PSO for meshes such as dashboard.mesh.
+        // Give stock props a position-only pipeline until their original material
+        // scripts/textures are brought across individually.
+        Ogre::GpuProgramPtr pvp = programs.createProgram("RoRPropVP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_VERTEX_PROGRAM);
+        pvp->setSourceFile("RoRGame.metal"); pvp->setParameter("entry_point", "ror_prop_vp");
+        Ogre::GpuProgramPtr pfp = programs.createProgram("RoRPropFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
+        pfp->setSourceFile("RoRGame.metal"); pfp->setParameter("entry_point", "ror_prop_fp"); pfp->setParameter("shader_reflection_pair_hint", "RoRPropVP");
+        pvp->load(); pfp->load();
+
         Ogre::GpuProgramPtr tvp = programs.createProgram("RoRVehicleVP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_VERTEX_PROGRAM);
         tvp->setSourceFile("RoRGame.metal"); tvp->setParameter("entry_point", "ror_vehicle_vp");
         Ogre::GpuProgramPtr tfp = programs.createProgram("RoRVehicleFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
@@ -286,6 +297,14 @@ private:
         pass->setVertexProgram("RoRGameVP"); pass->setFragmentProgram("RoRGameFP");
         pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
         flat->load();
+
+        Ogre::MaterialPtr prop_material = Ogre::MaterialManager::getSingleton().create("RoR/Prop", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        prop_material->removeAllTechniques();
+        Ogre::Pass* prop_pass = prop_material->createTechnique()->createPass();
+        prop_pass->setLightingEnabled(false); prop_pass->setCullingMode(Ogre::CULL_NONE); prop_pass->setDepthCheckEnabled(true); prop_pass->setDepthWriteEnabled(true);
+        prop_pass->setVertexProgram("RoRPropVP"); prop_pass->setFragmentProgram("RoRPropFP");
+        prop_pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
+        prop_material->load();
 
         // Reproduce the stock b6b0UID-tracks/semi material instead of using a
         // one-pass approximation. The original RoR material uses transparent
@@ -389,11 +408,10 @@ private:
             {
                 const std::string suffix = std::to_string(i);
                 Ogre::Entity* entity = scene->createEntity("RoRPropEntity" + suffix, prop.mesh_name);
-                // Keep the exact upstream mesh geometry and authored attachment,
-                // but use our known-good Metal material until each legacy RoR
-                // prop material is ported individually. Missing desktop material
-                // scripts must not be allowed to take the whole renderer down.
-                entity->setMaterialName("RoR/Game");
+                // Keep the exact upstream mesh geometry and authored attachment.
+                // A dedicated position-only material avoids requiring the COLOR0
+                // stream used by our ManualObject ground/wheel shader.
+                entity->setMaterialName("RoR/Prop");
                 entity->setCastShadows(false);
                 Ogre::SceneNode* node = scene->getRootSceneNode()->createChildSceneNode("RoRPropNode" + suffix);
                 node->attachObject(entity);
