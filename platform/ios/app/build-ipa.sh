@@ -42,6 +42,13 @@ if [[ -z "$FOXBODY_ROOT" || ! -d "$FOXBODY_ROOT" ]]; then
     echo "error: Foxbody resource did not contain 351Wmustang.soundscript" >&2
     exit 1
 fi
+FOXBODY_TRUCK="$(find "$FOXBODY_ROOT" -maxdepth 1 -type f \( -iname '*.truck' -o -iname '*.car' \) -print | sort | head -n 1)"
+if [[ -z "$FOXBODY_TRUCK" || ! -f "$FOXBODY_TRUCK" ]]; then
+    echo "error: Foxbody resource did not contain a top-level vehicle definition" >&2
+    exit 1
+fi
+
+echo "Using Foxbody vehicle definition: $FOXBODY_TRUCK"
 
 for REQUIRED in \
     "$CORE_LIB" \
@@ -60,6 +67,7 @@ for REQUIRED in \
     "$CONTENT_SRC/simple2-terrain/simple2-page-0-0.otc" \
     "$CONTENT_SRC/simple2-terrain/simple2-gravel_diffusespecular.dds" \
     "$CONTENT_SRC/simple2-terrain/simple2-gravel_normalheight.dds" \
+    "$FOXBODY_TRUCK" \
     "$FOXBODY_ROOT/351Wmustang.soundscript" \
     "$FOXBODY_ROOT/351Wlowidle.wav" \
     "$FOXBODY_ROOT/351Whighidle.wav" \
@@ -87,12 +95,20 @@ for REQUIRED in \
 done
 
 rm -rf "$OUT_DIR"
-mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/Content/simple2-terrain" "$APP_DIR/Content/foxbody-audio" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
+mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/Content/simple2-terrain" "$APP_DIR/Content/foxbody-audio" "$APP_DIR/Content/foxbody-mustang" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
 cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
 cp -R "$CONTENT_SRC/simple2-terrain/." "$APP_DIR/Content/simple2-terrain/"
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
+
+# Keep the entire authored Foxbody package together: the flexbody mesh, materials,
+# textures, props and the truck definition refer to one another by filename. A
+# stable alias lets the Objective-C++ shell select the vehicle without baking a
+# community-resource filename into the renderer.
+cp -R "$FOXBODY_ROOT/." "$APP_DIR/Content/foxbody-mustang/"
+cp "$FOXBODY_TRUCK" "$APP_DIR/Content/foxbody-mustang/Foxbody.truck"
+basename "$FOXBODY_TRUCK" > "$APP_DIR/Content/foxbody-mustang/PRIMARY_VEHICLE.txt"
 
 # Preserve the actual RoR soundscript and recordings. The AVFoundation bridge
 # parses these same RPM anchors at runtime; no synthesized placeholder tone.
@@ -216,6 +232,10 @@ test -s "$APP_DIR/Content/simple2-terrain/simple2.otc"
 test -s "$APP_DIR/Content/simple2-terrain/simple2-page-0-0.otc"
 test -s "$APP_DIR/Content/simple2-terrain/simple2-gravel_diffusespecular.dds"
 test -s "$APP_DIR/Content/simple2-terrain/simple2-gravel_normalheight.dds"
+test -s "$APP_DIR/Content/foxbody-mustang/Foxbody.truck"
+test -s "$APP_DIR/Content/foxbody-mustang/PRIMARY_VEHICLE.txt"
+find "$APP_DIR/Content/foxbody-mustang" -maxdepth 1 -type f -iname '*.mesh' -print -quit | grep -q .
+grep -Eiq '^[[:space:]]*flexbodies([[:space:]]|$)' "$APP_DIR/Content/foxbody-mustang/Foxbody.truck"
 test -s "$APP_DIR/Content/foxbody-audio/351Wmustang.soundscript"
 test -s "$APP_DIR/Content/foxbody-audio/351Wlowidle.wav"
 test -s "$APP_DIR/Content/foxbody-audio/351Whighidle.wav"
@@ -245,4 +265,4 @@ grep -q 'RoR::IOSAudio::EngineAudio' "$NM_DEMANGLED"
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned OGRE 14 / Metal + Simple2 + authored Foxbody 351W audio iPhone IPA: $IPA"
+echo "Built unsigned OGRE 14 / Metal + Simple2 + full Foxbody vehicle/audio iPhone IPA: $IPA"
