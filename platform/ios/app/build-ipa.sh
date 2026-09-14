@@ -16,6 +16,7 @@ FIXTURE="$ROOT/platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck"
 
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CXX="$(xcrun --sdk iphoneos --find clang++)"
+HOST_SDK="$(xcrun --sdk macosx --show-sdk-path)"
 HOST_CXX="$(xcrun --sdk macosx --find clang++)"
 CORE_LIB="$(find "$CORE_BUILD" -name 'libror_vehicle_core.a' -print -quit)"
 RIGDEF_LIB="$(find "$RIGDEF_BUILD" -name 'libror_native_rigdef.a' -print -quit)"
@@ -66,7 +67,11 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
 # then calls MTLDevice::newLibraryWithSource with OGRE's stage macros. Reproduce
 # that path on the macOS CI host so shader syntax and entry points are validated
 # without creating a false failure from a different compilation environment.
+# Explicitly select the macOS SDK here: the GitHub runner's bare clang lookup can
+# otherwise fall back to /System/Library/Frameworks, where SDK headers such as
+# Foundation/Foundation.h are intentionally absent.
 "$HOST_CXX" \
+    -isysroot "$HOST_SDK" \
     -fobjc-arc \
     -std=c++17 \
     "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
