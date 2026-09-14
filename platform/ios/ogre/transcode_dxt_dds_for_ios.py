@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Transcode legacy DXT1/DXT3 DDS into uncompressed BGRA8 DDS for iOS.
+"""Transcode legacy DXT1/DXT3/DXT5 DDS into uncompressed BGRA8 DDS for iOS.
 
 The RoR content remains visually identical and keeps the same .dds filenames.
 Only the on-device storage encoding changes. OGRE 14's Metal backend does not
@@ -68,6 +68,44 @@ def _decode_dxt3(block: bytes) -> list[tuple[int, int, int, int]]:
     return result
 
 
+def _dxt5_alpha_table(a0: int, a1: int) -> list[int]:
+    if a0 > a1:
+        return [
+            a0,
+            a1,
+            (6 * a0 + 1 * a1) // 7,
+            (5 * a0 + 2 * a1) // 7,
+            (4 * a0 + 3 * a1) // 7,
+            (3 * a0 + 4 * a1) // 7,
+            (2 * a0 + 5 * a1) // 7,
+            (1 * a0 + 6 * a1) // 7,
+        ]
+    return [
+        a0,
+        a1,
+        (4 * a0 + 1 * a1) // 5,
+        (3 * a0 + 2 * a1) // 5,
+        (2 * a0 + 3 * a1) // 5,
+        (1 * a0 + 4 * a1) // 5,
+        0,
+        255,
+    ]
+
+
+def _decode_dxt5(block: bytes) -> list[tuple[int, int, int, int]]:
+    a0, a1 = block[0], block[1]
+    alpha_indices = int.from_bytes(block[2:8], "little")
+    alphas = _dxt5_alpha_table(a0, a1)
+    c0, c1, colour_indices = struct.unpack("<HHI", block[8:16])
+    colours = _colour_table(c0, c1, False)
+    result: list[tuple[int, int, int, int]] = []
+    for i in range(16):
+        r, g, b, _ = colours[(colour_indices >> (2 * i)) & 0x3]
+        a = alphas[(alpha_indices >> (3 * i)) & 0x7]
+        result.append((r, g, b, a))
+    return result
+
+
 def decode_top_mip(data: bytes) -> tuple[int, int, bytes, str]:
     if len(data) < 128 or data[:4] != DDS_MAGIC:
         raise ValueError("input is not a classic DDS file")
@@ -93,8 +131,12 @@ def decode_top_mip(data: bytes) -> tuple[int, int, bytes, str]:
         block_size = 16
         decoder = _decode_dxt3
         format_name = "DXT3"
+    elif fourcc == b"DXT5":
+        block_size = 16
+        decoder = _decode_dxt5
+        format_name = "DXT5"
     else:
-        raise ValueError(f"unsupported DDS FourCC {fourcc!r}; expected DXT1 or DXT3")
+        raise ValueError(f"unsupported DDS FourCC {fourcc!r}; expected DXT1, DXT3, or DXT5")
 
     blocks_x = (width + 3) // 4
     blocks_y = (height + 3) // 4
@@ -127,8 +169,6 @@ def encode_bgra8_dds(width: int, height: int, rgba: bytes) -> bytes:
     if len(rgba) != width * height * 4:
         raise ValueError("RGBA payload size does not match dimensions")
 
-    # A8R8G8B8 has BGRA byte order on little-endian systems. OGRE maps this
-    # exact pixel format to MTLPixelFormatBGRA8Unorm in its Metal backend.
     bgra = bytearray(len(rgba))
     for i in range(0, len(rgba), 4):
         r, g, b, a = rgba[i:i + 4]
