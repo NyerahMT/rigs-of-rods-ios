@@ -48,6 +48,7 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     -I"$OGRE_SRC/RenderSystems/Metal/include" \
     -I"$OGRE_SRC/RenderSystems/Metal/include/Windowing/iOS" \
     "$ROOT/platform/ios/app/OgreGameApp.mm" \
+    "$ROOT/platform/ios/app/OgreRuntimeDiagnostics.mm" \
     "$ROOT/platform/ios/ogre/AuthoredVisualGeometry.cpp" \
     "$CORE_LIB" \
     "$OGRE_METAL" \
