@@ -82,6 +82,8 @@ for REQUIRED in \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
     "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl" \
     "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
+    "$ROOT/platform/ios/ogre/IOSFlexBody.cpp" \
+    "$ROOT/platform/ios/ogre/IOSFlexBody.h" \
     "$ROOT/platform/ios/ogre/RoRTerrainAdapter.cpp" \
     "$ROOT/platform/ios/ogre/RoRTerrainAdapter.h" \
     "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
@@ -200,6 +202,7 @@ python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \
     "$ROOT/platform/ios/app/RoREngineAudio.mm" \
     "$ROOT/platform/ios/ror-native/NativeRigDefLaunchProbe.mm" \
     "$ROOT/platform/ios/ogre/AuthoredVisualGeometry.cpp" \
+    "$ROOT/platform/ios/ogre/IOSFlexBody.cpp" \
     "$ROOT/platform/ios/ogre/RoRTerrainAdapter.cpp" \
     "$CORE_LIB" \
     "$RIGDEF_LIB" \
@@ -257,6 +260,7 @@ grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' "$NM_RAW" | sed -n '1,20p'
 grep -q 'RoR::IOSNative::ParseRigDef' "$NM_DEMANGLED"
 grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
 grep -q 'RoR::IOSOgre::RoRTerrainScene' "$NM_DEMANGLED"
+grep -q 'RoR::IOSOgre::IOSFlexBody::Update' "$NM_DEMANGLED"
 grep -q 'RoR::IOSAudio::EngineAudio' "$NM_DEMANGLED"
 
 (
@@ -265,4 +269,4 @@ grep -q 'RoR::IOSAudio::EngineAudio' "$NM_DEMANGLED"
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned OGRE 14 / Metal + Simple2 + full Foxbody vehicle/audio iPhone IPA: $IPA"
+echo "Built unsigned OGRE 14 / Metal + Simple2 + compiled RoR flexbody bridge + full Foxbody vehicle/audio iPhone IPA: $IPA"
