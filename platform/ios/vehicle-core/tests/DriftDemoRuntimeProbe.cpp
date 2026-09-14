@@ -28,7 +28,6 @@ int main()
     Require(car.BeamPairs().size() > 180, "integrated car includes a substantial beam structure");
     Require(car.TireNodeIndices().size() >= 64, "four soft tires are generated");
 
-    // Settle the sprung structure onto the road.
     car.SetControls(0.0f, 0.0f, 0.0f, false);
     for (int i = 0; i < 2400; ++i)
         car.Step(PHYSICS_DT);
@@ -36,10 +35,17 @@ int main()
 
     const DriftDemoTelemetry start = car.Telemetry();
 
-    // Progressive RWD launch.
     car.SetControls(0.0f, 0.72f, 0.0f, false);
-    for (int i = 0; i < 5000; ++i)
+    for (int i = 0; i < 5000 && car.IsFinite(); ++i)
         car.Step(PHYSICS_DT);
+    if (!car.IsFinite())
+    {
+        const DriftDemoTelemetry failed = car.Telemetry();
+        std::cerr << "Powered instability at physics step " << failed.physics_steps
+                  << ", speed=" << failed.speed_mps
+                  << ", rear_tread=" << failed.rear_wheel_speed_mps
+                  << ", center=(" << failed.center.x << ',' << failed.center.y << ',' << failed.center.z << ")\n";
+    }
     Require(car.IsFinite(), "car remains finite under rear-wheel drive torque");
 
     const DriftDemoTelemetry powered = car.Telemetry();
@@ -49,10 +55,9 @@ int main()
     Require(travel > 0.60f, "RWD torque moves the complete soft-body car");
     Require(powered.rear_wheel_speed_mps > 1.0f, "rear wheels spin under power");
 
-    // Command steering while maintaining power; the complete chassis must yaw.
     const float heading_before = powered.heading_radians;
     car.SetControls(0.72f, 0.48f, 0.0f, false);
-    for (int i = 0; i < 3600; ++i)
+    for (int i = 0; i < 3600 && car.IsFinite(); ++i)
         car.Step(PHYSICS_DT);
     Require(car.IsFinite(), "car remains finite while cornering");
 
@@ -62,10 +67,9 @@ int main()
     while (heading_delta < -3.14159265f) heading_delta += 6.28318531f;
     Require(std::fabs(heading_delta) > 0.025f, "steering input yaws the soft-body chassis");
 
-    // Handbrake must materially reduce rear tread speed.
     const float speed_before_handbrake = cornering.rear_wheel_speed_mps;
     car.SetControls(-0.35f, 0.0f, 0.0f, true);
-    for (int i = 0; i < 2600; ++i)
+    for (int i = 0; i < 2600 && car.IsFinite(); ++i)
         car.Step(PHYSICS_DT);
     Require(car.IsFinite(), "car remains finite during handbrake phase");
 
