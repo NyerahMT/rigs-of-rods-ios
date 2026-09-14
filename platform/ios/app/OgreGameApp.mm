@@ -224,6 +224,7 @@ private:
         camera = scene->createCamera("ChaseCamera");
         camera_node = scene->getRootSceneNode()->createChildSceneNode("ChaseCameraNode");
         camera_node->attachObject(camera);
+        camera_node->setFixedYawAxis(true, Ogre::Vector3::UNIT_Y);
         camera->setNearClipDistance(0.08f);
         camera->setFarClipDistance(1000.0f);
         camera->setFOVy(Ogre::Degree(58.0f));
