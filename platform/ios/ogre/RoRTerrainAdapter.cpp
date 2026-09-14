@@ -1,13 +1,15 @@
 #include "RoRTerrainAdapter.h"
 
 #include "OgreException.h"
+#include "OgreGpuProgramParams.h"
+#include "OgreManualObject.h"
 #include "OgreMaterial.h"
 #include "OgreMaterialManager.h"
-#include "OgreResourceGroupManager.h"
-#include "OgreString.h"
-#include "OgreTerrain.h"
-#include "OgreTerrainGroup.h"
-#include "OgreTerrainMaterialGenerator.h"
+#include "OgrePass.h"
+#include "OgreSceneManager.h"
+#include "OgreSceneNode.h"
+#include "OgreTechnique.h"
+#include "OgreTextureUnitState.h"
 
 #include <algorithm>
 #include <cctype>
@@ -172,6 +174,8 @@ TerrainDefinition ParseDefinition(const std::string& directory)
         throw std::runtime_error("first iOS terrain adapter requires Flat=1 until terrain collision is connected to vehicle physics");
     if (result.page_size < 3 || result.page_size > 65535)
         throw std::runtime_error("invalid OTC PageSize");
+    if (result.world_size_x <= 0.0f || result.world_size_z <= 0.0f)
+        throw std::runtime_error("invalid OTC world size");
     if (result.page_config.empty())
         throw std::runtime_error("OTC has no PageFileFormat");
 
@@ -193,70 +197,82 @@ TerrainDefinition ParseDefinition(const std::string& directory)
         layer.world_size = std::stof(fields[0]);
         layer.diffuse_specular = fields[1];
         layer.normal_height = fields[2];
+        if (layer.world_size <= 0.0f)
+            throw std::runtime_error("OTC terrain layer has invalid world size");
         result.layers.push_back(std::move(layer));
     }
 
     return result;
 }
 
-class IOSRoRTerrainMaterialGenerator final : public Ogre::TerrainMaterialGenerator
+void ConfigureFlatTerrainMaterial(const TerrainDefinition& definition,
+                                  const std::string& material_template)
 {
-public:
-    explicit IOSRoRTerrainMaterialGenerator(std::string material_template)
-        : m_material_template(std::move(material_template))
+    if (definition.layers.size() != 1)
+        throw std::runtime_error("first Simple2 Metal material currently supports exactly one OTC layer");
+
+    Ogre::MaterialPtr material = Ogre::MaterialManager::getSingleton().getByName(material_template);
+    if (!material)
+        OGRE_EXCEPT(Ogre::Exception::ERR_ITEM_NOT_FOUND,
+                    "iOS terrain material template is missing: " + material_template,
+                    "ConfigureFlatTerrainMaterial");
+
+    Ogre::Pass* pass = material->getTechnique(0)->getPass(0);
+    pass->getVertexProgramParameters()->setNamedConstant(
+        "uvScale",
+        Ogre::Vector2(definition.world_size_x / definition.layers[0].world_size,
+                      definition.world_size_z / definition.layers[0].world_size));
+
+    Ogre::TextureUnitState* texture = nullptr;
+    if (pass->getNumTextureUnitStates() == 0)
+        texture = pass->createTextureUnitState();
+    else
+        texture = pass->getTextureUnitState(0);
+    texture->setTextureName(definition.layers[0].diffuse_specular);
+    texture->setTextureAddressingMode(Ogre::TextureUnitState::TAM_WRAP);
+    texture->setTextureFiltering(Ogre::TFO_ANISOTROPIC);
+    texture->setTextureAnisotropy(8);
+    material->load();
+}
+
+Ogre::ManualObject* CreateFlatTerrainSurface(Ogre::SceneManager* scene,
+                                             const TerrainDefinition& definition,
+                                             const std::string& material_template)
+{
+    // The source map explicitly says Flat=1. Desktop RoR's 1025x1025 Terrain
+    // page therefore contains nothing but coplanar zero-height vertices. A pair
+    // of triangles is the exact same geometric surface, not an approximation.
+    // More importantly, this avoids Ogre::Terrain's indexed triangle-strip path,
+    // which Metal validation aborts on iOS before the first frame is presented.
+    Ogre::ManualObject* surface = scene->createManualObject("RoRIOSFlatTerrainSurface");
+    surface->setDynamic(false);
+    surface->begin(material_template, Ogre::RenderOperation::OT_TRIANGLE_LIST);
+
+    auto vertex = [surface](float x, float z, float u, float v)
     {
-        // Match the real RoR/OGRE terrain layer contract even though the first
-        // Metal terrain pass samples only the diffuse/specular texture. Keeping
-        // both sampler slots means OTC layer data remains structurally authentic.
-        mLayerDecl = {
-            Ogre::TerrainLayerSampler("albedo_specular", Ogre::PF_BYTE_RGBA),
-            Ogre::TerrainLayerSampler("normal_height", Ogre::PF_BYTE_RGBA)
-        };
-    }
+        surface->position(x, 0.0f, z);
+        surface->textureCoord(u, v);
+    };
 
-    bool isVertexCompressionSupported() const override { return false; }
-
-    void requestOptions(Ogre::Terrain* terrain) override
-    {
-        terrain->_setMorphRequired(false);
-        terrain->_setNormalMapRequired(false);
-        terrain->_setLightMapRequired(false);
-        terrain->_setCompositeMapRequired(false);
-    }
-
-    Ogre::MaterialPtr generate(const Ogre::Terrain* terrain) override
-    {
-        Ogre::MaterialPtr source = Ogre::MaterialManager::getSingleton().getByName(m_material_template);
-        if (!source)
-            OGRE_EXCEPT(Ogre::Exception::ERR_ITEM_NOT_FOUND,
-                        "iOS terrain material template is missing: " + m_material_template,
-                        "IOSRoRTerrainMaterialGenerator::generate");
-
-        const Ogre::String target_name = terrain->getMaterialName();
-        Ogre::MaterialPtr old = Ogre::MaterialManager::getSingleton().getByName(target_name);
-        if (old) Ogre::MaterialManager::getSingleton().remove(target_name);
-        return source->clone(target_name);
-    }
-
-    Ogre::MaterialPtr generateForCompositeMap(const Ogre::Terrain* terrain) override
-    {
-        return generate(terrain);
-    }
-
-    Ogre::uint8 getMaxLayers(const Ogre::Terrain*) const override { return 1; }
-
-private:
-    std::string m_material_template;
-};
+    const float x = definition.world_size_x;
+    const float z = definition.world_size_z;
+    vertex(0.0f, 0.0f, 0.0f, 1.0f);
+    vertex(x,    0.0f, 1.0f, 1.0f);
+    vertex(x,    z,    1.0f, 0.0f);
+    vertex(0.0f, 0.0f, 0.0f, 1.0f);
+    vertex(x,    z,    1.0f, 0.0f);
+    vertex(0.0f, z,    0.0f, 0.0f);
+    surface->end();
+    return surface;
+}
 
 } // namespace
 
 struct RoRTerrainScene::Impl
 {
     Ogre::SceneManager* scene = nullptr;
-    Ogre::TerrainGlobalOptions* globals = nullptr;
-    Ogre::TerrainGroup* group = nullptr;
-    bool owns_globals = false;
+    Ogre::ManualObject* surface = nullptr;
+    Ogre::SceneNode* surface_node = nullptr;
     bool ready = false;
     std::string error;
     TerrainDefinition definition;
@@ -270,59 +286,10 @@ struct RoRTerrainScene::Impl
         {
             if (!scene) throw std::runtime_error("terrain has no OGRE SceneManager");
             definition = ParseDefinition(directory);
-            if (definition.layers.size() != 1)
-                throw std::runtime_error("first Simple2 Metal material currently supports exactly one OTC layer");
-
-            globals = Ogre::TerrainGlobalOptions::getSingletonPtr();
-            if (!globals)
-            {
-                globals = OGRE_NEW Ogre::TerrainGlobalOptions();
-                owns_globals = true;
-            }
-
-            Ogre::TerrainMaterialGeneratorPtr generator(
-                OGRE_NEW IOSRoRTerrainMaterialGenerator(material_template));
-            globals->setDefaultMaterialGenerator(generator);
-            globals->setMaxPixelError(definition.max_pixel_error);
-            globals->setLayerBlendMapSize(static_cast<Ogre::uint16>(definition.layer_blend_map_size));
-            globals->setCompositeMapSize(static_cast<Ogre::uint16>(definition.composite_map_size));
-            globals->setCompositeMapDistance(definition.composite_map_distance);
-            globals->setSkirtSize(definition.skirt_size);
-            globals->setLightMapSize(static_cast<Ogre::uint16>(definition.light_map_size));
-            globals->setUseRayBoxDistanceCalculation(false);
-            globals->setUseVertexCompressionWhenAvailable(false);
-            globals->setDefaultResourceGroup(Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-            globals->setDefaultLayerTextureWorldSize(definition.layers[0].world_size);
-
-            const float world_size = std::max(definition.world_size_x, definition.world_size_z);
-            group = OGRE_NEW Ogre::TerrainGroup(scene,
-                                                 Ogre::Terrain::ALIGN_X_Z,
-                                                 static_cast<Ogre::uint16>(definition.page_size),
-                                                 world_size);
-            group->setOrigin(Ogre::Vector3(definition.world_size_x * 0.5f,
-                                           0.0f,
-                                           definition.world_size_z * 0.5f));
-            group->setResourceGroup(Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
-
-            Ogre::Terrain::ImportData& import = group->getDefaultImportSettings();
-            import.terrainSize = static_cast<Ogre::uint16>(definition.page_size);
-            import.worldSize = world_size;
-            import.inputScale = definition.world_size_y;
-            import.minBatchSize = static_cast<Ogre::uint16>(definition.min_batch_size);
-            import.maxBatchSize = static_cast<Ogre::uint16>(definition.max_batch_size);
-            import.layerDeclaration = generator->getLayerDeclaration();
-            import.layerList.resize(1);
-            import.layerList[0].worldSize = definition.layers[0].world_size;
-            import.layerList[0].textureNames.push_back(definition.layers[0].diffuse_specular);
-            import.layerList[0].textureNames.push_back(definition.layers[0].normal_height);
-
-            // Simple2 is authored Flat=1. This is exactly what desktop RoR's
-            // TerrainGeometryManager::SetupGeometry() does for the same page.
-            group->defineTerrain(0, 0, 0.0f);
-            group->loadAllTerrains(true);
-            if (!group->getTerrain(0, 0))
-                throw std::runtime_error("OGRE Terrain failed to instantiate OTC page 0,0");
-            group->freeTemporaryResources();
+            ConfigureFlatTerrainMaterial(definition, material_template);
+            surface = CreateFlatTerrainSurface(scene, definition, material_template);
+            surface_node = scene->getRootSceneNode()->createChildSceneNode("RoRIOSFlatTerrainNode");
+            surface_node->attachObject(surface);
             ready = true;
         }
         catch (const Ogre::Exception& e)
@@ -337,15 +304,17 @@ struct RoRTerrainScene::Impl
 
     ~Impl()
     {
-        if (group)
+        if (!scene) return;
+        if (surface_node)
         {
-            OGRE_DELETE group;
-            group = nullptr;
+            surface_node->detachAllObjects();
+            scene->destroySceneNode(surface_node);
+            surface_node = nullptr;
         }
-        if (owns_globals && globals)
+        if (surface)
         {
-            OGRE_DELETE globals;
-            globals = nullptr;
+            scene->destroyManualObject(surface);
+            surface = nullptr;
         }
     }
 };
