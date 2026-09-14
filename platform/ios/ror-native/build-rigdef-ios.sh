@@ -40,6 +40,7 @@ COMMON=(
     -I"$ROOT/source/main/datatypes"
     -I"$ROOT/source/main/system"
     -I"$ROOT/source/main/utils"
+    -I"$ROOT/source/main/utils/memory"
     -I"$ROOT/source/main/physics"
     -I"$ROOT/source/main/resources"
     -I"$ROOT/source/main/resources/rig_def_fileformat"
