@@ -162,14 +162,24 @@ public:
         camera->setAspectRatio(static_cast<Ogre::Real>(size.width / size.height));
     }
 
+    void AddLookDelta(float dx_points, float dy_points)
+    {
+        // Finger drag orbits the chase camera around the vehicle. Keep the yaw
+        // unbounded/wrapped so the player can look fully around the truck, while
+        // clamping pitch before the camera can flip through the ground.
+        look_yaw = WrapAngle(look_yaw - dx_points * 0.0060f);
+        look_pitch = std::max(-0.52f, std::min(0.78f, look_pitch - dy_points * 0.0045f));
+    }
+
+    void ResetLook()
+    {
+        look_yaw = 0.0f;
+        look_pitch = 0.0f;
+    }
+
     void Draw(const Snapshot& s, const RoR::IOSOgre::AuthoredVisualGeometry& visual)
     {
         if (!root) return;
-
-        // Keep presenting the OGRE viewport even if a future vehicle/content
-        // regression makes the physics snapshot temporarily unavailable. A
-        // vehicle failure should never masquerade as another black-screen
-        // renderer failure.
         if (s.ready && s.finite && !s.nodes.empty())
         {
             UpdateBody(s, visual);
@@ -271,11 +281,6 @@ private:
         fp->setSourceFile("RoRGame.metal"); fp->setParameter("entry_point", "ror_game_fp"); fp->setParameter("shader_reflection_pair_hint", "RoRGameVP");
         vp->load(); fp->load();
 
-        // Legacy RoR prop meshes have their own vertex declarations and are not
-        // guaranteed to contain COLOR0. The ManualObject shader above requires
-        // COLOR0, which makes Metal reject the PSO for meshes such as dashboard.mesh.
-        // Give stock props a position-only pipeline until their original material
-        // scripts/textures are brought across individually.
         Ogre::GpuProgramPtr pvp = programs.createProgram("RoRPropVP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_VERTEX_PROGRAM);
         pvp->setSourceFile("RoRGame.metal"); pvp->setParameter("entry_point", "ror_prop_vp");
         Ogre::GpuProgramPtr pfp = programs.createProgram("RoRPropFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
@@ -306,9 +311,6 @@ private:
         prop_pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
         prop_material->load();
 
-        // Reproduce the stock b6b0UID-tracks/semi material instead of using a
-        // one-pass approximation. The original RoR material uses transparent
-        // alpha blending + alpha rejection, then an additive emissive pass.
         Ogre::MaterialPtr truck = Ogre::MaterialManager::getSingleton().create("RoR/DAFOfficial", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         truck->removeAllTechniques();
         Ogre::Technique* truck_technique = truck->createTechnique();
@@ -408,9 +410,6 @@ private:
             {
                 const std::string suffix = std::to_string(i);
                 Ogre::Entity* entity = scene->createEntity("RoRPropEntity" + suffix, prop.mesh_name);
-                // Keep the exact upstream mesh geometry and authored attachment.
-                // A dedicated position-only material avoids requiring the COLOR0
-                // stream used by our ManualObject ground/wheel shader.
                 entity->setMaterialName("RoR/Prop");
                 entity->setCastShadows(false);
                 Ogre::SceneNode* node = scene->getRootSceneNode()->createChildSceneNode("RoRPropNode" + suffix);
@@ -447,7 +446,12 @@ private:
                 continue;
             }
 
-            Ogre::Vector3 normal = -diff_x.crossProduct(diff_y);
+            // Upstream GfxActor::UpdateProps() uses diffY x diffX for the prop
+            // normal, then constructs a full orthonormal attachment frame. The
+            // previous iOS code used diffX.getRotationTo(diffY), which rotates
+            // around the mesh origin as the chassis flexes and caused the props
+            // to visibly swivel through themselves.
+            Ogre::Vector3 normal = diff_y.crossProduct(diff_x);
             if (normal.squaredLength() < 1.0e-8f)
             {
                 instance.entity->setVisible(false);
@@ -455,19 +459,27 @@ private:
             }
             normal.normalise();
 
-            // This is the upstream RoR GfxActor::UpdateProps transform. Props
-            // therefore follow the deforming node-and-beam chassis rather than
-            // being rigidly glued to our renderer/camera coordinate system.
             const Ogre::Vector3 position = ref
                 + prop.offset_x * diff_x
                 + prop.offset_y * diff_y
                 + prop.offset_z * normal;
-            const Ogre::Quaternion orientation =
-                Ogre::Quaternion(Ogre::Degree(180.0f), Ogre::Vector3::UNIT_Y)
-                * diff_x.getRotationTo(diff_y)
-                * Ogre::Quaternion(Ogre::Degree(prop.rot_x_degrees), Ogre::Vector3::UNIT_X)
+
+            const Ogre::Vector3 ref_x = diff_x.normalisedCopy();
+            Ogre::Vector3 ref_y = ref_x.crossProduct(normal);
+            if (ref_y.squaredLength() < 1.0e-8f)
+            {
+                instance.entity->setVisible(false);
+                continue;
+            }
+            ref_y.normalise();
+
+            // ActorSpawner builds pp_rot as Z * Y * X; preserve that exact RoR
+            // Euler order before applying it to the live node-derived basis.
+            const Ogre::Quaternion authored_rotation =
+                Ogre::Quaternion(Ogre::Degree(prop.rot_z_degrees), Ogre::Vector3::UNIT_Z)
                 * Ogre::Quaternion(Ogre::Degree(prop.rot_y_degrees), Ogre::Vector3::UNIT_Y)
-                * Ogre::Quaternion(Ogre::Degree(prop.rot_z_degrees), Ogre::Vector3::UNIT_Z);
+                * Ogre::Quaternion(Ogre::Degree(prop.rot_x_degrees), Ogre::Vector3::UNIT_X);
+            const Ogre::Quaternion orientation = Ogre::Quaternion(ref_x, normal, ref_y) * authored_rotation;
 
             instance.node->setPosition(position);
             instance.node->setOrientation(orientation);
@@ -481,25 +493,38 @@ private:
         if (!camera_started) { camera_center=target_center; camera_heading=t.heading_radians; camera_started=true; }
         camera_center += (target_center-camera_center)*0.14f;
         camera_heading = WrapAngle(camera_heading + WrapAngle(t.heading_radians-camera_heading)*0.12f);
-        const Ogre::Vector3 forward(std::cos(camera_heading),0,std::sin(camera_heading));
+
+        const Ogre::Vector3 vehicle_forward(std::cos(camera_heading),0,std::sin(camera_heading));
         const float chase=10.5f+std::min(t.speed_mps,35.0f)*0.055f;
-        camera_node->setPosition(camera_center-forward*chase+Ogre::Vector3(0,4.4f,0));
-        camera_node->lookAt(camera_center+forward*2.6f+Ogre::Vector3(0,1.05f,0),Ogre::Node::TS_PARENT);
+        const float orbit_heading = camera_heading + look_yaw;
+        const Ogre::Vector3 orbit_forward(std::cos(orbit_heading),0,std::sin(orbit_heading));
+        const float horizontal = chase * std::cos(look_pitch);
+        const float vertical = 4.4f + chase * std::sin(look_pitch);
+        const Ogre::Vector3 look_target = camera_center + vehicle_forward*2.2f + Ogre::Vector3(0,1.05f,0);
+
+        camera_node->setPosition(camera_center-orbit_forward*horizontal+Ogre::Vector3(0,vertical,0));
+        camera_node->lookAt(look_target,Ogre::Node::TS_PARENT);
     }
 
     Ogre::Root* root=nullptr; Ogre::MetalPlugin* metal_plugin=nullptr; Ogre::RenderWindow* window=nullptr; Ogre::SceneManager* scene=nullptr;
     Ogre::Camera* camera=nullptr; Ogre::SceneNode* camera_node=nullptr; Ogre::ManualObject* body=nullptr; Ogre::ManualObject* wheels=nullptr;
     std::vector<PropInstance> prop_instances;
-    __strong UIView* view=nil; bool body_built=false, wheels_built=false, props_built=false, camera_started=false; Ogre::Vector3 camera_center=Ogre::Vector3::ZERO; float camera_heading=0;
+    __strong UIView* view=nil;
+    bool body_built=false, wheels_built=false, props_built=false, camera_started=false;
+    Ogre::Vector3 camera_center=Ogre::Vector3::ZERO;
+    float camera_heading=0.0f;
+    float look_yaw=0.0f;
+    float look_pitch=0.0f;
 };
 } // namespace
 
-@interface RoRGameViewController : UIViewController
+@interface RoRGameViewController : UIViewController<UIGestureRecognizerDelegate>
 @end
 
 @implementation RoRGameViewController
 {
     SimulationHost* _simulation; OgreRenderer* _renderer; UIView* _ogreView; CADisplayLink* _displayLink; UILabel* _speed; UILabel* _status;
+    UIPanGestureRecognizer* _lookPan;
     BOOL _left,_right,_gas,_brake,_handbrake; CFTimeInterval _lastFrame; float _fps;
 }
 
@@ -516,8 +541,10 @@ private:
     NSString* path=[[NSBundle mainBundle] pathForResource:@"b6b0UID-semi" ofType:@"truck" inDirectory:@"Content/dafsemi"];
     NSString* text=path?[NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:nil]:nil;
     _simulation=new SimulationHost(std::string(text?text.UTF8String:""));
+
     _speed=[[UILabel alloc] init]; _speed.translatesAutoresizingMaskIntoConstraints=NO; _speed.textColor=UIColor.whiteColor; _speed.font=[UIFont monospacedDigitSystemFontOfSize:25 weight:UIFontWeightBold]; _speed.layer.shadowColor=UIColor.blackColor.CGColor; _speed.layer.shadowOpacity=.8; _speed.layer.shadowRadius=4; [self.view addSubview:_speed];
     _status=[[UILabel alloc] init]; _status.translatesAutoresizingMaskIntoConstraints=NO; _status.textColor=[UIColor colorWithWhite:1 alpha:.72]; _status.font=[UIFont monospacedSystemFontOfSize:10.5 weight:UIFontWeightSemibold]; _status.numberOfLines=2; [self.view addSubview:_status];
+
     UIButton *left=[self button:@"◀"],*right=[self button:@"▶"],*brake=[self button:@"BRAKE"],*hb=[self button:@"HB"],*gas=[self button:@"GAS"],*reset=[self button:@"RESET"];
     gas.backgroundColor=[UIColor colorWithRed:.03 green:.30 blue:.11 alpha:.68]; brake.backgroundColor=[UIColor colorWithRed:.34 green:.04 blue:.04 alpha:.68]; hb.backgroundColor=[UIColor colorWithRed:.33 green:.15 blue:.02 alpha:.68]; reset.titleLabel.font=[UIFont systemFontOfSize:11 weight:UIFontWeightBold];
     [left addTarget:self action:@selector(leftDown:) forControlEvents:UIControlEventTouchDown]; [left addTarget:self action:@selector(leftUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
@@ -525,10 +552,40 @@ private:
     [gas addTarget:self action:@selector(gasDown:) forControlEvents:UIControlEventTouchDown]; [gas addTarget:self action:@selector(gasUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
     [brake addTarget:self action:@selector(brakeDown:) forControlEvents:UIControlEventTouchDown]; [brake addTarget:self action:@selector(brakeUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel];
     [hb addTarget:self action:@selector(hbDown:) forControlEvents:UIControlEventTouchDown]; [hb addTarget:self action:@selector(hbUp:) forControlEvents:UIControlEventTouchUpInside|UIControlEventTouchUpOutside|UIControlEventTouchCancel]; [reset addTarget:self action:@selector(reset:) forControlEvents:UIControlEventTouchUpInside];
+
     UIStackView* steer=[[UIStackView alloc] initWithArrangedSubviews:@[left,right]]; steer.translatesAutoresizingMaskIntoConstraints=NO; steer.spacing=12; steer.distribution=UIStackViewDistributionFillEqually; [self.view addSubview:steer];
     UIStackView* pedals=[[UIStackView alloc] initWithArrangedSubviews:@[brake,hb,gas]]; pedals.translatesAutoresizingMaskIntoConstraints=NO; pedals.spacing=10; pedals.distribution=UIStackViewDistributionFillEqually; [self.view addSubview:pedals]; [self.view addSubview:reset];
     [NSLayoutConstraint activateConstraints:@[[_speed.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:18],[_speed.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],[_status.leadingAnchor constraintEqualToAnchor:_speed.leadingAnchor],[_status.topAnchor constraintEqualToAnchor:_speed.bottomAnchor constant:2],[steer.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:18],[steer.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16],[steer.widthAnchor constraintEqualToConstant:176],[steer.heightAnchor constraintEqualToConstant:72],[pedals.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-18],[pedals.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16],[pedals.widthAnchor constraintEqualToConstant:260],[pedals.heightAnchor constraintEqualToConstant:72],[reset.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16],[reset.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:12],[reset.widthAnchor constraintEqualToConstant:64],[reset.heightAnchor constraintEqualToConstant:34]]];
+
+    // Drag anywhere in the open center of the scene to orbit the camera. The
+    // recognizer deliberately ignores UIControls so steering/throttle touches
+    // remain independent and can still be held while the other thumb looks.
+    _lookPan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(lookPan:)];
+    _lookPan.maximumNumberOfTouches=1;
+    _lookPan.cancelsTouchesInView=NO;
+    _lookPan.delegate=self;
+    [self.view addGestureRecognizer:_lookPan];
+
     _displayLink=[CADisplayLink displayLinkWithTarget:self selector:@selector(frame:)]; if(@available(iOS 15.0,*)) _displayLink.preferredFrameRateRange=CAFrameRateRangeMake(kRenderFps,kRenderFps,kRenderFps); else _displayLink.preferredFramesPerSecond=kRenderFps; [_displayLink addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer*)gesture shouldReceiveTouch:(UITouch*)touch
+{
+    (void)gesture;
+    UIView* v=touch.view;
+    while(v){if([v isKindOfClass:UIControl.class])return NO;v=v.superview;}
+    const CGPoint p=[touch locationInView:self.view];
+    const CGFloat h=MAX(1.0,self.view.bounds.size.height);
+    // Reserve the top HUD strip and the bottom control strip. The broad middle
+    // of the Metal view is the dedicated look surface.
+    return p.y>h*0.14 && p.y<h*0.82;
+}
+
+- (void)lookPan:(UIPanGestureRecognizer*)pan
+{
+    const CGPoint delta=[pan translationInView:self.view];
+    [pan setTranslation:CGPointZero inView:self.view];
+    if(_renderer)_renderer->AddLookDelta((float)delta.x,(float)delta.y);
 }
 
 - (void)viewDidAppear:(BOOL)animated{[super viewDidAppear:animated];[self ensureRenderer];}
@@ -540,19 +597,15 @@ private:
     if(_renderer||self.view.bounds.size.width<2||self.view.bounds.size.height<2)return;
     NSString* rootPath=[[NSBundle mainBundle] resourcePath]; NSString* media=[rootPath stringByAppendingPathComponent:@"OgreMedia/Main"]; NSString* content=[rootPath stringByAppendingPathComponent:@"Content/dafsemi"]; NSString* propMeshes=[rootPath stringByAppendingPathComponent:@"RoRResources/meshes"];
     try{_renderer=new OgreRenderer(self.view.bounds.size,std::string(media.UTF8String),std::string(content.UTF8String),std::string(propMeshes.UTF8String));_ogreView=_renderer->View();_ogreView.frame=self.view.bounds;[self.view insertSubview:_ogreView atIndex:0];}
-    catch(const Ogre::Exception& e){_status.text=[NSString stringWithFormat:@"OGRE INIT FAILED\
-%s",e.getFullDescription().c_str()];}
-    catch(const std::exception& e){_status.text=[NSString stringWithFormat:@"RENDER INIT FAILED\
-%s",e.what()];}
+    catch(const Ogre::Exception& e){_status.text=[NSString stringWithFormat:@"OGRE INIT FAILED\n%s",e.getFullDescription().c_str()];}
+    catch(const std::exception& e){_status.text=[NSString stringWithFormat:@"RENDER INIT FAILED\n%s",e.what()];}
 }
 
 - (void)frame:(CADisplayLink*)link
 {
     [self ensureRenderer]; if(_lastFrame>0){double dt=link.timestamp-_lastFrame;if(dt>.0001){float now=1.0f/(float)dt;_fps=_fps<1?now:_fps*.90f+now*.10f;}}_lastFrame=link.timestamp;
     Snapshot s=_simulation->GetSnapshot(); if(_renderer)_renderer->Draw(s,_simulation->Visual()); _speed.text=[NSString stringWithFormat:@"%3.0f MPH",s.telemetry.speed_mps*kMetersToMph];
-    if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\
-%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • ROR DAF + PROPS • %.0f FPS\
-ROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
+    if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\n%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • ROR DAF + PROPS • %.0f FPS\nROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
 }
 
 - (void)push{_simulation->SetControls((_right?1.f:0.f)-(_left?1.f:0.f),_gas?1.f:0.f,_brake?1.f:0.f,_handbrake);}
@@ -561,7 +614,7 @@ ROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
 - (void)gasDown:(id)x{(void)x;_gas=YES;[self push];}- (void)gasUp:(id)x{(void)x;_gas=NO;[self push];}
 - (void)brakeDown:(id)x{(void)x;_brake=YES;[self push];}- (void)brakeUp:(id)x{(void)x;_brake=NO;[self push];}
 - (void)hbDown:(id)x{(void)x;_handbrake=YES;[self push];}- (void)hbUp:(id)x{(void)x;_handbrake=NO;[self push];}
-- (void)reset:(id)x{(void)x;_left=_right=_gas=_brake=_handbrake=NO;[self push];_simulation->Reset();}
+- (void)reset:(id)x{(void)x;_left=_right=_gas=_brake=_handbrake=NO;[self push];_simulation->Reset();if(_renderer)_renderer->ResetLook();}
 @end
 
 @interface RoRProbeAppDelegate:UIResponder<UIApplicationDelegate>@property(nonatomic,strong)UIWindow* window;@end
