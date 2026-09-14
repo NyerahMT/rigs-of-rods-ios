@@ -220,8 +220,10 @@ private:
         Ogre::ResourceGroupManager::getSingleton().initialiseAllResourceGroups();
         CreateMaterial();
 
-        scene = root->createSceneManager(Ogre::ST_GENERIC);
+        scene = root->createSceneManager("DefaultSceneManager", "GameScene");
         camera = scene->createCamera("ChaseCamera");
+        camera_node = scene->getRootSceneNode()->createChildSceneNode("ChaseCameraNode");
+        camera_node->attachObject(camera);
         camera->setNearClipDistance(0.08f);
         camera->setFarClipDistance(1000.0f);
         camera->setFOVy(Ogre::Degree(58.0f));
@@ -312,7 +314,12 @@ private:
             if (!n.isZeroLength()) n.normalise();
             const float light = 0.43f + 0.57f * std::fabs(n.dotProduct(sun));
             const float contact = t.contact ? 0.82f : 1.0f;
-            Tri(body, a, b, c, {0.10f*light*contact, 0.39f*light*contact, 0.70f*light*contact, 1.0f});
+            const Ogre::ColourValue colour(
+                0.10f * light * contact,
+                0.39f * light * contact,
+                0.70f * light * contact,
+                1.0f);
+            Tri(body, a, b, c, colour);
         }
         body->end(); body_built = true;
     }
@@ -368,8 +375,10 @@ private:
         camera_heading = WrapAngle(camera_heading + WrapAngle(t.heading_radians-camera_heading)*0.12f);
         const Ogre::Vector3 forward(std::cos(camera_heading),0,std::sin(camera_heading));
         const float chase = 10.5f + std::min(t.speed_mps,35.0f)*0.055f;
-        camera->setPosition(camera_center-forward*chase+Ogre::Vector3(0,4.4f,0));
-        camera->lookAt(camera_center+forward*2.6f+Ogre::Vector3(0,1.05f,0));
+        const Ogre::Vector3 camera_position = camera_center-forward*chase+Ogre::Vector3(0,4.4f,0);
+        const Ogre::Vector3 camera_target = camera_center+forward*2.6f+Ogre::Vector3(0,1.05f,0);
+        camera_node->setPosition(camera_position);
+        camera_node->lookAt(camera_target, Ogre::Node::TS_PARENT);
     }
 
     Ogre::Root* root = nullptr;
@@ -377,6 +386,7 @@ private:
     Ogre::RenderWindow* window = nullptr;
     Ogre::SceneManager* scene = nullptr;
     Ogre::Camera* camera = nullptr;
+    Ogre::SceneNode* camera_node = nullptr;
     Ogre::ManualObject* body = nullptr;
     Ogre::ManualObject* wheels = nullptr;
     __strong UIView* view = nil;
