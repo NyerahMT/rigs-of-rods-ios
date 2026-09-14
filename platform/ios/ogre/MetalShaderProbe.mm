@@ -44,10 +44,10 @@ static void RequireFunction(id<MTLLibrary> library, NSString* name)
     }
 }
 
-static void CompileStage(id<MTLDevice> device,
-                         NSString* source,
-                         NSString* stageMacro,
-                         NSArray<NSString*>* requiredFunctions)
+static id<MTLLibrary> CompileStage(id<MTLDevice> device,
+                                   NSString* source,
+                                   NSString* stageMacro,
+                                   NSArray<NSString*>* requiredFunctions)
 {
     MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
     options.preprocessorMacros = @{
@@ -70,6 +70,43 @@ static void CompileStage(id<MTLDevice> device,
 
     for (NSString* name in requiredFunctions)
         RequireFunction(library, name);
+    return library;
+}
+
+static void SetAttribute(MTLVertexDescriptor* vd,
+                         NSUInteger index,
+                         MTLVertexFormat format,
+                         NSUInteger offset)
+{
+    vd.attributes[index].format = format;
+    vd.attributes[index].offset = offset;
+    vd.attributes[index].bufferIndex = 0;
+}
+
+static void RequirePipeline(id<MTLDevice> device,
+                            id<MTLLibrary> vertexLibrary,
+                            NSString* vertexName,
+                            id<MTLLibrary> fragmentLibrary,
+                            NSString* fragmentName,
+                            MTLVertexDescriptor* vertexDescriptor,
+                            NSString* label)
+{
+    MTLRenderPipelineDescriptor* descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.label = label;
+    descriptor.vertexFunction = [vertexLibrary newFunctionWithName:vertexName];
+    descriptor.fragmentFunction = [fragmentLibrary newFunctionWithName:fragmentName];
+    descriptor.vertexDescriptor = vertexDescriptor;
+    descriptor.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
+
+    NSError* error = nil;
+    id<MTLRenderPipelineState> pipeline = [device newRenderPipelineStateWithDescriptor:descriptor error:&error];
+    if (!pipeline)
+    {
+        fprintf(stderr, "Metal PSO validation failed for %s:\n%s\n",
+                label.UTF8String,
+                error.localizedDescription.UTF8String);
+        exit(5);
+    }
 }
 
 int main(int argc, char** argv)
@@ -93,12 +130,36 @@ int main(int argc, char** argv)
         NSString* headerPath = [NSString stringWithUTF8String:argv[2]];
         NSString* source = ResolveUnifiedInclude(ReadUTF8(shaderPath), ReadUTF8(headerPath));
 
-        CompileStage(device, source, @"OGRE_VERTEX_SHADER",
-                     @[@"ror_game_vp", @"ror_prop_vp", @"ror_vehicle_vp"]);
-        CompileStage(device, source, @"OGRE_FRAGMENT_SHADER",
-                     @[@"ror_game_fp", @"ror_prop_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
+        id<MTLLibrary> vertexLibrary = CompileStage(device, source, @"OGRE_VERTEX_SHADER",
+            @[@"ror_game_vp", @"ror_prop_vp", @"ror_vehicle_vp"]);
+        id<MTLLibrary> fragmentLibrary = CompileStage(device, source, @"OGRE_FRAGMENT_SHADER",
+            @[@"ror_game_fp", @"ror_prop_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
 
-        printf("OGRE-style Metal runtime shader probe passed (vertex + fragment entry points).\n");
+        // Mirror the semantic locations used by OgreUnifiedShader.h / MetalProgram.
+        // Most importantly, the stock-prop layout intentionally omits COLOR0 (3).
+        // This recreates the #97 on-device failure class: a prop shader that asks
+        // for COLOR0 cannot be linked against a normal POSITION/NORMAL/TEXCOORD mesh.
+        MTLVertexDescriptor* gameVD = [MTLVertexDescriptor vertexDescriptor];
+        SetAttribute(gameVD, 0, MTLVertexFormatFloat3, 0);   // POSITION
+        SetAttribute(gameVD, 3, MTLVertexFormatFloat4, 16);  // COLOR0
+        gameVD.layouts[0].stride = 32;
+        RequirePipeline(device, vertexLibrary, @"ror_game_vp", fragmentLibrary, @"ror_game_fp", gameVD, @"RoR/Game");
+
+        MTLVertexDescriptor* propVD = [MTLVertexDescriptor vertexDescriptor];
+        SetAttribute(propVD, 0, MTLVertexFormatFloat3, 0);   // POSITION
+        SetAttribute(propVD, 2, MTLVertexFormatFloat3, 12);  // NORMAL
+        SetAttribute(propVD, 8, MTLVertexFormatFloat2, 24);  // TEXCOORD0
+        propVD.layouts[0].stride = 32;
+        RequirePipeline(device, vertexLibrary, @"ror_prop_vp", fragmentLibrary, @"ror_prop_fp", propVD, @"RoR/Prop-no-COLOR0");
+
+        MTLVertexDescriptor* vehicleVD = [MTLVertexDescriptor vertexDescriptor];
+        SetAttribute(vehicleVD, 0, MTLVertexFormatFloat3, 0);   // POSITION
+        SetAttribute(vehicleVD, 3, MTLVertexFormatFloat4, 16);  // COLOR0
+        SetAttribute(vehicleVD, 8, MTLVertexFormatFloat2, 32);  // TEXCOORD0
+        vehicleVD.layouts[0].stride = 48;
+        RequirePipeline(device, vertexLibrary, @"ror_vehicle_vp", fragmentLibrary, @"ror_vehicle_fp", vehicleVD, @"RoR/DAFOfficial");
+
+        printf("OGRE-style Metal runtime shader + PSO probes passed.\n");
         return 0;
     }
 }
