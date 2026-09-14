@@ -22,6 +22,8 @@ CORE_LIB="$(find "$CORE_BUILD" -name 'libror_vehicle_core.a' -print -quit)"
 RIGDEF_LIB="$(find "$RIGDEF_BUILD" -name 'libror_native_rigdef.a' -print -quit)"
 OGRE_MAIN="$(find "$OGRE_BUILD" -name 'libOgreMainStatic.a' -print -quit)"
 OGRE_METAL="$(find "$OGRE_BUILD" -name 'libRenderSystem_MetalStatic.a' -print -quit)"
+OGRE_RTSS="$(find "$OGRE_BUILD" -name 'libOgreRTShaderSystemStatic.a' -print -quit)"
+OGRE_TERRAIN="$(find "$OGRE_BUILD" -name 'libOgreTerrainStatic.a' -print -quit)"
 
 if [[ ! -d "$CONTENT_SRC/.git" ]] || [[ "$(git -C "$CONTENT_SRC" rev-parse HEAD 2>/dev/null || true)" != "$CONTENT_COMMIT" ]]; then
     rm -rf "$CONTENT_SRC"
@@ -36,11 +38,18 @@ for REQUIRED in \
     "$RIGDEF_LIB" \
     "$OGRE_MAIN" \
     "$OGRE_METAL" \
+    "$OGRE_RTSS" \
+    "$OGRE_TERRAIN" \
     "$FIXTURE" \
     "$CONTENT_SRC/dafsemi/b6b0UID-semi.truck" \
     "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" \
     "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" \
     "$CONTENT_SRC/dafsemi/b6b0UID-semi.material" \
+    "$CONTENT_SRC/simple2-terrain/simple2.terrn2" \
+    "$CONTENT_SRC/simple2-terrain/simple2.otc" \
+    "$CONTENT_SRC/simple2-terrain/simple2-page-0-0.otc" \
+    "$CONTENT_SRC/simple2-terrain/simple2-gravel_diffusespecular.dds" \
+    "$CONTENT_SRC/simple2-terrain/simple2-gravel_normalheight.dds" \
     "$ROOT/resources/meshes/dashboard.mesh" \
     "$ROOT/resources/meshes/leftmirror.mesh" \
     "$ROOT/resources/meshes/rightmirror.mesh" \
@@ -50,6 +59,8 @@ for REQUIRED in \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
     "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl" \
     "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
+    "$ROOT/platform/ios/ogre/RoRTerrainAdapter.cpp" \
+    "$ROOT/platform/ios/ogre/RoRTerrainAdapter.h" \
     "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
@@ -58,27 +69,19 @@ for REQUIRED in \
 done
 
 rm -rf "$OUT_DIR"
-mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
+mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/Content/simple2-terrain" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
 cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
+cp -R "$CONTENT_SRC/simple2-terrain/." "$APP_DIR/Content/simple2-terrain/"
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
 
-# These are the stock shared RoR meshes referenced by the DAF's `props`
-# section. Package only the exact resources the vehicle needs for now; pulling
-# in the entire legacy materials tree would make OGRE parse unrelated desktop
-# shader scripts during this Metal bring-up.
 for MESH in dashboard.mesh leftmirror.mesh rightmirror.mesh seat.mesh; do
     cp "$ROOT/resources/meshes/$MESH" "$APP_DIR/RoRResources/meshes/$MESH"
 done
 
-# The stock DAF diffuse is DXT3 and its emissive map is DXT1. OGRE 14's Metal
-# backend deliberately does not expose BC/DXT texture formats on iOS, so the
-# runtime otherwise takes a legacy software-decode path. The on-device result
-# showed corrupted colour channels (white atlas regions became yellow). Keep the
-# exact official artwork and filenames, but package these two textures as
-# uncompressed A8R8G8B8/BGRA8 DDS. This is a native Metal texture format and
-# completely removes DXT decoding from the iPhone runtime path.
+# Keep the official artwork but remove on-device BC/DXT decoding from the Metal
+# path. This is the same deterministic BGRA8 DDS packaging that fixed the DAF.
 cp "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" "$APP_DIR/Content/dafsemi/b6b0UID-semi-source.dds"
 cp "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-source.dds"
 python3 "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
@@ -88,8 +91,19 @@ python3 "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
     "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" \
     "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
 
-# Fail packaging if either iOS texture somehow remains FourCC-compressed.
-python3 - "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds" "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds" <<'PY'
+for TERRAIN_TEX in simple2-gravel_diffusespecular.dds simple2-gravel_normalheight.dds; do
+    cp "$CONTENT_SRC/simple2-terrain/$TERRAIN_TEX" "$APP_DIR/Content/simple2-terrain/${TERRAIN_TEX%.dds}-source.dds"
+    python3 "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
+        "$CONTENT_SRC/simple2-terrain/$TERRAIN_TEX" \
+        "$APP_DIR/Content/simple2-terrain/$TERRAIN_TEX"
+done
+
+# Fail packaging if the textures that hit Metal are still FourCC-compressed.
+python3 - \
+    "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds" \
+    "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds" \
+    "$APP_DIR/Content/simple2-terrain/simple2-gravel_diffusespecular.dds" \
+    "$APP_DIR/Content/simple2-terrain/simple2-gravel_normalheight.dds" <<'PY'
 import struct, sys
 for path in sys.argv[1:]:
     data = open(path, 'rb').read(128)
@@ -103,10 +117,6 @@ PY
 cp -R "$OGRE_SRC/Media/Main/." "$APP_DIR/OgreMedia/Main/"
 cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 
-# OGRE does not feed its runtime shader to the standalone `metal` command.
-# MetalProgram resolves OgreUnifiedShader.h through OGRE's resource system and
-# then calls MTLDevice::newLibraryWithSource with OGRE's stage macros. Reproduce
-# that path on the macOS CI host so shader syntax and entry points are validated.
 "$HOST_CXX" \
     -isysroot "$HOST_SDK" \
     -fobjc-arc \
@@ -135,11 +145,16 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     -I"$OGRE_BUILD/include" \
     -I"$OGRE_SRC/RenderSystems/Metal/include" \
     -I"$OGRE_SRC/RenderSystems/Metal/include/Windowing/iOS" \
+    -I"$OGRE_SRC/Components/Terrain/include" \
+    -I"$OGRE_SRC/Components/RTShaderSystem/include" \
     "$ROOT/platform/ios/app/OgreGameApp.mm" \
     "$ROOT/platform/ios/ror-native/NativeRigDefLaunchProbe.mm" \
     "$ROOT/platform/ios/ogre/AuthoredVisualGeometry.cpp" \
+    "$ROOT/platform/ios/ogre/RoRTerrainAdapter.cpp" \
     "$CORE_LIB" \
     "$RIGDEF_LIB" \
+    "$OGRE_TERRAIN" \
+    "$OGRE_RTSS" \
     "$OGRE_METAL" \
     "$OGRE_MAIN" \
     -framework UIKit \
@@ -161,6 +176,11 @@ test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi-source.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-source.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.material"
+test -s "$APP_DIR/Content/simple2-terrain/simple2.terrn2"
+test -s "$APP_DIR/Content/simple2-terrain/simple2.otc"
+test -s "$APP_DIR/Content/simple2-terrain/simple2-page-0-0.otc"
+test -s "$APP_DIR/Content/simple2-terrain/simple2-gravel_diffusespecular.dds"
+test -s "$APP_DIR/Content/simple2-terrain/simple2-gravel_normalheight.dds"
 for MESH in dashboard.mesh leftmirror.mesh rightmirror.mesh seat.mesh; do
     test -s "$APP_DIR/RoRResources/meshes/$MESH"
 done
@@ -176,6 +196,8 @@ c++filt < "$NM_RAW" > "$NM_DEMANGLED"
 grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' "$NM_RAW" | sed -n '1,20p'
 grep -q 'RoR::IOSNative::ParseRigDef' "$NM_DEMANGLED"
 grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
+grep -q 'Ogre::TerrainGroup::loadAllTerrains' "$NM_DEMANGLED"
+grep -q 'RoR::IOSOgre::RoRTerrainScene' "$NM_DEMANGLED"
 
 (
     cd "$OUT_DIR"
@@ -183,4 +205,4 @@ grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned OGRE 14 / Metal + native RoR RigDef + official DAF content iPhone IPA: $IPA"
+echo "Built unsigned OGRE 14 / Metal + native RoR RigDef + stock Simple2 terrain iPhone IPA: $IPA"
