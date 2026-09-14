@@ -16,7 +16,7 @@ FIXTURE="$ROOT/platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck"
 
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CXX="$(xcrun --sdk iphoneos --find clang++)"
-METALC="$(xcrun --sdk iphoneos --find metal)"
+HOST_CXX="$(xcrun --sdk macosx --find clang++)"
 CORE_LIB="$(find "$CORE_BUILD" -name 'libror_vehicle_core.a' -print -quit)"
 RIGDEF_LIB="$(find "$RIGDEF_BUILD" -name 'libror_native_rigdef.a' -print -quit)"
 OGRE_MAIN="$(find "$OGRE_BUILD" -name 'libOgreMainStatic.a' -print -quit)"
@@ -43,7 +43,8 @@ for REQUIRED in \
     "$OGRE_SRC/Media/Main/OgreUnifiedShader.h" \
     "$OGRE_SRC/Media/Main/DefaultShaders.metal" \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
-    "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl"; do
+    "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl" \
+    "$ROOT/platform/ios/ogre/MetalShaderProbe.mm"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
         exit 1
@@ -60,16 +61,21 @@ echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
 cp -R "$OGRE_SRC/Media/Main/." "$APP_DIR/OgreMedia/Main/"
 cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 
-# OGRE compiles Metal source at runtime. Compile the exact packaged shader in
-# CI as well so invalid MSL can never produce a green build and a black screen
-# only after installation. OGRE's Metal backend supplies OGRE_METAL=0 today;
-# the unified shader include only needs that language selector for this source.
-"$METALC" \
-    -c \
-    -DOGRE_METAL=0 \
-    -I"$APP_DIR/OgreMedia/Main" \
+# OGRE does not feed its runtime shader to the standalone `metal` command.
+# MetalProgram resolves OgreUnifiedShader.h through OGRE's resource system and
+# then calls MTLDevice::newLibraryWithSource with OGRE's stage macros. Reproduce
+# that path on the macOS CI host so shader syntax and entry points are validated
+# without creating a false failure from a different compilation environment.
+"$HOST_CXX" \
+    -fobjc-arc \
+    -std=c++17 \
+    "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
+    -framework Foundation \
+    -framework Metal \
+    -o "$OUT_DIR/metal-shader-probe"
+"$OUT_DIR/metal-shader-probe" \
     "$APP_DIR/OgreMedia/Main/RoRGame.metal" \
-    -o "$OUT_DIR/RoRGame.air"
+    "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 
 "$CXX" \
     -arch arm64 \
@@ -106,7 +112,7 @@ chmod +x "$APP_DIR/$APP_NAME"
 plutil -lint "$APP_DIR/Info.plist"
 file "$APP_DIR/$APP_NAME"
 lipo -info "$APP_DIR/$APP_NAME"
-test -s "$OUT_DIR/RoRGame.air"
+test -x "$OUT_DIR/metal-shader-probe"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
