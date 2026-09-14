@@ -155,8 +155,6 @@ struct DriftDemoRuntime::Impl
                 binding.inner = &nodes[sides[side]];
                 fixture.bindings.push_back(binding);
 
-                // Same soft-wheel geometric principle as RoR's generated wheels:
-                // every tire node is located by both axle nodes.
                 AddBeam(outer, fixture.axis0, 190000.0f, 2600.0f);
                 AddBeam(outer, fixture.axis1, 190000.0f, 2600.0f);
             }
@@ -187,8 +185,6 @@ struct DriftDemoRuntime::Impl
             ? (left ? chassis_front_right : chassis_front_left)
             : (left ? chassis_rear_right : chassis_rear_left);
 
-        // Compliant locating links give the portable demo a real sprung mass
-        // without introducing a rigid-body wheel shortcut.
         AddBeam(wheel.axis0, lower_near, 260000.0f, 6500.0f);
         AddBeam(wheel.axis1, lower_near, 260000.0f, 6500.0f);
         AddBeam(wheel.axis0, lower_far, 110000.0f, 4200.0f);
@@ -210,7 +206,6 @@ struct DriftDemoRuntime::Impl
         wheels.clear();
         front_axis_nodes.clear();
 
-        // Eight-node deformable space-frame. X is forward, Y is up, Z is lateral.
         chassis_front_left  = AddNode(PhysicsVec3( 1.20f, 0.82f,  0.53f), 62.0f);
         chassis_front_right = AddNode(PhysicsVec3( 1.20f, 0.82f, -0.53f), 62.0f);
         chassis_rear_left   = AddNode(PhysicsVec3(-1.20f, 0.82f,  0.53f), 62.0f);
@@ -232,8 +227,6 @@ struct DriftDemoRuntime::Impl
         }
 
         wheels.reserve(4);
-        // Axis order always points +Z so positive wheel torque produces the
-        // same tread direction on all four corners.
         wheels.push_back(BuildWheel( 0.98f,  0.68f,  0.90f, false, false, chassis_front_left, 0));
         wheels.push_back(BuildWheel( 0.98f, -0.90f, -0.68f, false, false, chassis_front_right, 0));
         wheels.push_back(BuildWheel(-0.98f,  0.68f,  0.90f, true,  true,  chassis_rear_left, 0));
@@ -244,7 +237,6 @@ struct DriftDemoRuntime::Impl
         ConnectWheelToChassis(wheels[2], false, true);
         ConnectWheelToChassis(wheels[3], false, false);
 
-        // The closest axis node is used for the reaction-arm force pair.
         wheels[0].near_attach = wheels[0].axis0;
         wheels[1].near_attach = wheels[1].axis1;
         wheels[2].near_attach = wheels[2].axis0;
@@ -330,7 +322,7 @@ struct DriftDemoRuntime::Impl
 
         const float forward_speed = front_velocity.dot(forward);
         const float lateral_speed = front_velocity.dot(right);
-        const float steer_angle = steering * 0.58f; // ~33 degrees at full lock.
+        const float steer_angle = steering * 0.58f;
         const float desired_lateral = forward_speed * std::tan(steer_angle);
         const float error = desired_lateral - lateral_speed;
         const float lateral_force = Clamp(error * 5200.0f, -18500.0f, 18500.0f);
@@ -348,7 +340,6 @@ struct DriftDemoRuntime::Impl
             return;
         }
 
-        // Tire/road contact is the same portable primitive used by the core probes.
         for (std::size_t index : tire_nodes)
         {
             ApplyFlatGroundContact(nodes[index], 0.0f, road, dt);
@@ -366,20 +357,23 @@ struct DriftDemoRuntime::Impl
             }
         }
 
-        // Clutch/throttle ramp prevents an impossible torque impulse on tick one.
         const float throttle_rate = 2.8f * dt;
         if (throttle_state < throttle)
             throttle_state = std::min(throttle, throttle_state + throttle_rate);
         else
             throttle_state = std::max(throttle, throttle_state - throttle_rate * 1.8f);
 
-        DifferentialData diff;
+        // Equal torque is used for this first integrated mobile actor. RoR's
+        // locked-diff torsion model is intentionally retained in the core, but
+        // the portable demo does not yet have the exact desktop axle/rigidity
+        // geometry required to keep that 1e6 N*m/rad correction well behaved.
+        DifferentialData diff{};
         diff.speed[0] = wheels[2].wheel.speed;
         diff.speed[1] = wheels[3].wheel.speed;
         diff.delta_rotation = diff_delta_rotation;
         diff.in_torque = throttle_state * 2550.0f;
         diff.dt = dt;
-        Differential::CalcLockedDiff(diff);
+        Differential::CalcSeparateDiff(diff);
         diff_delta_rotation = diff.delta_rotation;
         wheels[2].wheel.torque += diff.out_torque[0];
         wheels[3].wheel.torque += diff.out_torque[1];
