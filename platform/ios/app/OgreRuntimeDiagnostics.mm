@@ -2,6 +2,42 @@
 #import <QuartzCore/CAMetalLayer.h>
 #import <objc/runtime.h>
 
+static NSString *gCapturedRendererFailure = nil;
+
+@interface UILabel (RoROgreFailureCapture)
+@end
+
+@implementation UILabel (RoROgreFailureCapture)
+
++ (void)load
+{
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Method original = class_getInstanceMethod(self, @selector(setText:));
+        Method replacement = class_getInstanceMethod(self, @selector(ror_diag_setText:));
+        method_exchangeImplementations(original, replacement);
+    });
+}
+
+- (void)ror_diag_setText:(NSString *)text
+{
+    if (text.length)
+    {
+        NSString *upper = text.uppercaseString;
+        if (([upper containsString:@"OGRE"] || [upper containsString:@"RENDER"]) &&
+            ([upper containsString:@"FAILED"] || [upper containsString:@"EXCEPTION"] || [upper containsString:@"ERROR"]))
+        {
+            @synchronized(UILabel.class)
+            {
+                gCapturedRendererFailure = [text copy];
+            }
+        }
+    }
+    [self ror_diag_setText:text];
+}
+
+@end
+
 @interface RoROgreRuntimeDiagnostics : NSObject
 @end
 
@@ -44,6 +80,14 @@
     return nil;
 }
 
+- (NSString *)capturedFailure
+{
+    @synchronized(UILabel.class)
+    {
+        return gCapturedRendererFailure ?: @"";
+    }
+}
+
 - (NSString *)logTail
 {
     NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:@"RoROgre.log"];
@@ -51,41 +95,30 @@
     if (!text.length) return @"OGRE log: <empty>";
 
     NSArray<NSString *> *lines = [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet];
-    NSMutableArray<NSString *> *useful = [NSMutableArray array];
-    for (NSString *line in lines)
-    {
-        NSString *lower = line.lowercaseString;
-        if ([lower containsString:@"error"] || [lower containsString:@"exception"] ||
-            [lower containsString:@"metal"] || [lower containsString:@"shader"] ||
-            [lower containsString:@"render"])
-        {
-            if (line.length) [useful addObject:line];
-        }
-    }
-    NSArray<NSString *> *source = useful.count ? useful : lines;
-    NSUInteger start = source.count > 4 ? source.count - 4 : 0;
+    NSUInteger start = lines.count > 7 ? lines.count - 7 : 0;
     NSMutableArray<NSString *> *tail = [NSMutableArray array];
-    for (NSUInteger i = start; i < source.count; ++i)
+    for (NSUInteger i = start; i < lines.count; ++i)
     {
-        NSString *line = source[i];
-        if (line.length > 115) line = [line substringToIndex:115];
+        NSString *line = lines[i];
+        if (line.length > 150) line = [line substringToIndex:150];
         if (line.length) [tail addObject:line];
     }
-    return tail.count ? [tail componentsJoinedByString:@"\n"] : @"OGRE log: <no useful lines>";
+    return tail.count ? [tail componentsJoinedByString:@"\n"] : @"OGRE log: <no lines>";
 }
 
 - (void)start
 {
     _label = [UILabel new];
     _label.translatesAutoresizingMaskIntoConstraints = NO;
-    _label.numberOfLines = 8;
+    _label.numberOfLines = 14;
+    _label.lineBreakMode = NSLineBreakByWordWrapping;
     _label.textColor = UIColor.whiteColor;
-    _label.backgroundColor = [UIColor colorWithRed:0.20 green:0.00 blue:0.25 alpha:0.88];
-    _label.font = [UIFont monospacedSystemFontOfSize:9.0 weight:UIFontWeightSemibold];
+    _label.backgroundColor = [UIColor colorWithRed:0.20 green:0.00 blue:0.25 alpha:0.91];
+    _label.font = [UIFont monospacedSystemFontOfSize:8.5 weight:UIFontWeightSemibold];
     _label.layer.cornerRadius = 7.0;
     _label.layer.masksToBounds = YES;
 
-    _timer = [NSTimer scheduledTimerWithTimeInterval:0.5 target:self selector:@selector(update) userInfo:nil repeats:YES];
+    _timer = [NSTimer scheduledTimerWithTimeInterval:0.35 target:self selector:@selector(update) userInfo:nil repeats:YES];
     [_timer fire];
 }
 
@@ -100,15 +133,19 @@
         [NSLayoutConstraint activateConstraints:@[
             [_label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor],
             [_label.topAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.topAnchor constant:8],
-            [_label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.62]
+            [_label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.80]
         ]];
     }
     [window bringSubviewToFront:_label];
 
+    NSString *failure = [self capturedFailure];
     UIView *ogre = [self findOgreView:window];
     if (!ogre)
     {
-        _label.text = [NSString stringWithFormat:@"DIAG: OGRE VIEW = NO\n%@", [self logTail]];
+        if (failure.length)
+            _label.text = [NSString stringWithFormat:@"DIAG: OGRE VIEW = NO\nCAPTURED INIT FAILURE:\n%@\n--- LOG TAIL ---\n%@", failure, [self logTail]];
+        else
+            _label.text = [NSString stringWithFormat:@"DIAG: OGRE VIEW = NO\nCAPTURED INIT FAILURE: <none yet>\n--- LOG TAIL ---\n%@", [self logTail]];
         return;
     }
 
@@ -122,7 +159,7 @@
 
     _label.text = [NSString stringWithFormat:
         @"DIAG: OGRE VIEW = YES  window=%@  metal=%@  device=%@\n"
-         "bounds %.0fx%.0f  scale %.2f  drawable %.0fx%.0f  hidden=%@ alpha=%.2f\n%@",
+         "bounds %.0fx%.0f  scale %.2f  drawable %.0fx%.0f  hidden=%@ alpha=%.2f\n%@%@",
         ogre.window ? @"YES" : @"NO",
         isMetal ? @"YES" : @"NO",
         device ? @"YES" : @"NO",
@@ -130,6 +167,7 @@
         ogre.contentScaleFactor,
         drawable.width, drawable.height,
         ogre.hidden ? @"YES" : @"NO", ogre.alpha,
+        failure.length ? [NSString stringWithFormat:@"CAPTURED FAILURE: %@\n", failure] : @"",
         [self logTail]];
 }
 
