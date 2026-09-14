@@ -302,7 +302,7 @@ end
 {
     (void)link;
     _statusLabel.text = [NSString stringWithFormat:
-        @"RIGS OF RODS — iOS LIVE PHYSICS\n2,000 Hz fixed solver  •  %lu nodes  •  %lu beams\n%,llu physics steps",
+        @"RIGS OF RODS — iOS LIVE PHYSICS\n2,000 Hz fixed solver  •  %lu nodes  •  %lu beams\n%llu physics steps",
         (unsigned long)_physicsView.nodeCount,
         (unsigned long)_physicsView.beamCount,
         _physicsView.physicsSteps];
