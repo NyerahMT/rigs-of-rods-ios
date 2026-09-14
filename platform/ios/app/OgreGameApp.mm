@@ -3,6 +3,7 @@
 
 #include "AuthoredVehicleRuntime.h"
 #include "AuthoredVisualGeometry.h"
+#include "RoRTerrainAdapter.h"
 #include "SimConstants.h"
 
 #include "Ogre.h"
@@ -17,6 +18,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -32,6 +34,12 @@ constexpr double kMaxSimCatchup = 0.05;
 Ogre::Vector3 OgreVec(const RoR::PhysicsVec3& v) { return {v.x, v.y, v.z}; }
 float Clamp01(float x) { return std::max(0.0f, std::min(1.0f, x)); }
 float WrapAngle(float x) { return std::atan2(std::sin(x), std::cos(x)); }
+
+std::string ParentPath(const std::string& path)
+{
+    const std::size_t slash = path.find_last_of('/');
+    return slash == std::string::npos ? std::string() : path.substr(0, slash);
+}
 
 struct Snapshot
 {
@@ -145,6 +153,7 @@ public:
     ~OgreRenderer()
     {
         if (view) [view removeFromSuperview];
+        terrain.reset();
         delete root;
         root = nullptr;
         delete metal_plugin;
@@ -153,6 +162,7 @@ public:
     }
 
     UIView* View() const { return view; }
+    const std::string& TerrainStatus() const { return terrain_status; }
 
     void Resize(CGSize size)
     {
@@ -164,9 +174,6 @@ public:
 
     void AddLookDelta(float dx_points, float dy_points)
     {
-        // Finger drag orbits the chase camera around the vehicle. Keep the yaw
-        // unbounded/wrapped so the player can look fully around the truck, while
-        // clamping pitch before the camera can flip through the ground.
         look_yaw = WrapAngle(look_yaw - dx_points * 0.0060f);
         look_pitch = std::max(-0.52f, std::min(0.78f, look_pitch - dy_points * 0.0045f));
     }
@@ -197,6 +204,11 @@ private:
         Ogre::SceneNode* node = nullptr;
         Ogre::Entity* entity = nullptr;
     };
+
+    Ogre::Vector3 WorldVec(const RoR::PhysicsVec3& v) const
+    {
+        return OgreVec(v) + vehicle_world_offset;
+    }
 
     static void V(Ogre::ManualObject* o, const Ogre::Vector3& p, const Ogre::ColourValue& c)
     {
@@ -233,10 +245,12 @@ private:
         root->setRenderSystem(metal);
         root->initialise(false);
 
+        const std::string terrain_path = ParentPath(content_path) + "/simple2-terrain";
         auto& groups = Ogre::ResourceGroupManager::getSingleton();
         groups.addResourceLocation(media_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         groups.addResourceLocation(content_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         groups.addResourceLocation(prop_mesh_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        groups.addResourceLocation(terrain_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
         const unsigned int w = std::max(2u, static_cast<unsigned int>(size.width));
         const unsigned int h = std::max(2u, static_cast<unsigned int>(size.height));
@@ -257,13 +271,25 @@ private:
         camera_node->attachObject(camera);
         camera_node->setFixedYawAxis(true, Ogre::Vector3::UNIT_Y);
         camera->setNearClipDistance(0.08f);
-        camera->setFarClipDistance(1200.0f);
+        camera->setFarClipDistance(2500.0f);
         camera->setFOVy(Ogre::Degree(58.0f));
         camera->setAspectRatio(static_cast<Ogre::Real>(size.width / std::max<CGFloat>(1.0, size.height)));
         Ogre::Viewport* viewport = window->addViewport(camera);
         viewport->setBackgroundColour(Ogre::ColourValue(0.40f, 0.60f, 0.79f, 1.0f));
 
-        CreateGround();
+        terrain.reset(new RoR::IOSOgre::RoRTerrainScene(scene, terrain_path, "RoR/Simple2TerrainTemplate"));
+        if (terrain->Ready())
+        {
+            vehicle_world_offset = terrain->StartPosition();
+            terrain_status = "SIMPLE2 OGRE TERRAIN";
+        }
+        else
+        {
+            terrain_status = "TERRAIN FALLBACK";
+            Ogre::LogManager::getSingleton().logMessage("iOS terrain fallback: " + terrain->Error());
+            CreateGround();
+        }
+
         body = scene->createManualObject("RoRAuthoredCab");
         body->setDynamic(true);
         scene->getRootSceneNode()->createChildSceneNode()->attachObject(body);
@@ -286,6 +312,12 @@ private:
         Ogre::GpuProgramPtr pfp = programs.createProgram("RoRPropFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
         pfp->setSourceFile("RoRGame.metal"); pfp->setParameter("entry_point", "ror_prop_fp"); pfp->setParameter("shader_reflection_pair_hint", "RoRPropVP");
         pvp->load(); pfp->load();
+
+        Ogre::GpuProgramPtr terrain_vp = programs.createProgram("RoRTerrainVP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_VERTEX_PROGRAM);
+        terrain_vp->setSourceFile("RoRGame.metal"); terrain_vp->setParameter("entry_point", "ror_terrain_vp");
+        Ogre::GpuProgramPtr terrain_fp = programs.createProgram("RoRTerrainFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
+        terrain_fp->setSourceFile("RoRGame.metal"); terrain_fp->setParameter("entry_point", "ror_terrain_fp"); terrain_fp->setParameter("shader_reflection_pair_hint", "RoRTerrainVP");
+        terrain_vp->load(); terrain_fp->load();
 
         Ogre::GpuProgramPtr tvp = programs.createProgram("RoRVehicleVP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_VERTEX_PROGRAM);
         tvp->setSourceFile("RoRGame.metal"); tvp->setParameter("entry_point", "ror_vehicle_vp");
@@ -310,6 +342,22 @@ private:
         prop_pass->setVertexProgram("RoRPropVP"); prop_pass->setFragmentProgram("RoRPropFP");
         prop_pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
         prop_material->load();
+
+        Ogre::MaterialPtr terrain_material = Ogre::MaterialManager::getSingleton().create("RoR/Simple2TerrainTemplate", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        terrain_material->removeAllTechniques();
+        Ogre::Pass* terrain_pass = terrain_material->createTechnique()->createPass();
+        terrain_pass->setLightingEnabled(false); terrain_pass->setCullingMode(Ogre::CULL_NONE); terrain_pass->setDepthCheckEnabled(true); terrain_pass->setDepthWriteEnabled(true);
+        terrain_pass->setVertexProgram("RoRTerrainVP"); terrain_pass->setFragmentProgram("RoRTerrainFP");
+        terrain_pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
+        // Pinned Simple2: 1024 m terrain with a 3.3 m authored splat world size.
+        // The terrain adapter still reads the real OTC geometry/layer metadata;
+        // this shader constant preserves the exact layer repeat for this first map.
+        terrain_pass->getVertexProgramParameters()->setNamedConstant("uvScale", Ogre::Vector2(1024.0f/3.3f, 1024.0f/3.3f));
+        Ogre::TextureUnitState* terrain_texture = terrain_pass->createTextureUnitState("simple2-gravel_diffusespecular.dds");
+        terrain_texture->setTextureAddressingMode(Ogre::TextureUnitState::TAM_WRAP);
+        terrain_texture->setTextureFiltering(Ogre::TFO_ANISOTROPIC);
+        terrain_texture->setTextureAnisotropy(8);
+        terrain_material->load();
 
         Ogre::MaterialPtr truck = Ogre::MaterialManager::getSingleton().create("RoR/DAFOfficial", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         truck->removeAllTechniques();
@@ -338,17 +386,10 @@ private:
 
     void CreateGround()
     {
-        Ogre::ManualObject* pad = scene->createManualObject("AsphaltPad");
+        Ogre::ManualObject* pad = scene->createManualObject("TerrainFallbackPad");
         pad->begin("RoR/Game", Ogre::RenderOperation::OT_TRIANGLE_LIST);
         const Ogre::ColourValue asphalt(0.105f, 0.115f, 0.125f, 1.0f);
         Quad(pad, {-300,-0.025f,-300}, {300,-0.025f,-300}, {300,-0.025f,300}, {-300,-0.025f,300}, asphalt);
-        const Ogre::ColourValue grid(0.18f, 0.19f, 0.20f, 1.0f);
-        for (int i = -20; i <= 20; ++i)
-        {
-            const float p = i * 10.0f;
-            Quad(pad, {-200,-0.018f,p-0.025f}, {200,-0.018f,p-0.025f}, {200,-0.018f,p+0.025f}, {-200,-0.018f,p+0.025f}, grid);
-            Quad(pad, {p-0.025f,-0.018f,-200}, {p+0.025f,-0.018f,-200}, {p+0.025f,-0.018f,200}, {p-0.025f,-0.018f,200}, grid);
-        }
         pad->end();
         scene->getRootSceneNode()->createChildSceneNode()->attachObject(pad);
     }
@@ -361,9 +402,9 @@ private:
         for (const auto& t : visual.cab_triangles)
         {
             if (t.a >= s.nodes.size() || t.b >= s.nodes.size() || t.c >= s.nodes.size() || !t.has_uv) continue;
-            const Ogre::Vector3 a = OgreVec(s.nodes[t.a]);
-            const Ogre::Vector3 b = OgreVec(s.nodes[t.b]);
-            const Ogre::Vector3 c = OgreVec(s.nodes[t.c]);
+            const Ogre::Vector3 a = WorldVec(s.nodes[t.a]);
+            const Ogre::Vector3 b = WorldVec(s.nodes[t.b]);
+            const Ogre::Vector3 c = WorldVec(s.nodes[t.c]);
             Ogre::Vector3 n = (b-a).crossProduct(c-a);
             if (!n.isZeroLength()) n.normalise();
             const float light = 0.58f + 0.42f * std::max(0.0f, n.dotProduct(sun));
@@ -382,7 +423,7 @@ private:
         for (const auto& w : visual.wheels)
         {
             if (w.axis0 >= s.nodes.size() || w.axis1 >= s.nodes.size()) continue;
-            const Ogre::Vector3 p0 = OgreVec(s.nodes[w.axis0]), p1 = OgreVec(s.nodes[w.axis1]);
+            const Ogre::Vector3 p0 = WorldVec(s.nodes[w.axis0]), p1 = WorldVec(s.nodes[w.axis1]);
             Ogre::Vector3 axis = p1-p0; if (axis.isZeroLength()) continue; axis.normalise();
             Ogre::Vector3 r0 = Ogre::Vector3::UNIT_Y - axis * axis.dotProduct(Ogre::Vector3::UNIT_Y);
             if (r0.isZeroLength()) r0 = Ogre::Vector3::UNIT_X - axis * axis.dotProduct(Ogre::Vector3::UNIT_X);
@@ -437,20 +478,15 @@ private:
                 continue;
             }
 
-            const Ogre::Vector3 ref = OgreVec(s.nodes[prop.node_ref]);
-            const Ogre::Vector3 diff_x = OgreVec(s.nodes[prop.node_x]) - ref;
-            const Ogre::Vector3 diff_y = OgreVec(s.nodes[prop.node_y]) - ref;
+            const Ogre::Vector3 ref = WorldVec(s.nodes[prop.node_ref]);
+            const Ogre::Vector3 diff_x = WorldVec(s.nodes[prop.node_x]) - ref;
+            const Ogre::Vector3 diff_y = WorldVec(s.nodes[prop.node_y]) - ref;
             if (diff_x.squaredLength() < 1.0e-8f || diff_y.squaredLength() < 1.0e-8f)
             {
                 instance.entity->setVisible(false);
                 continue;
             }
 
-            // Upstream GfxActor::UpdateProps() uses diffY x diffX for the prop
-            // normal, then constructs a full orthonormal attachment frame. The
-            // previous iOS code used diffX.getRotationTo(diffY), which rotates
-            // around the mesh origin as the chassis flexes and caused the props
-            // to visibly swivel through themselves.
             Ogre::Vector3 normal = diff_y.crossProduct(diff_x);
             if (normal.squaredLength() < 1.0e-8f)
             {
@@ -473,8 +509,6 @@ private:
             }
             ref_y.normalise();
 
-            // ActorSpawner builds pp_rot as Z * Y * X; preserve that exact RoR
-            // Euler order before applying it to the live node-derived basis.
             const Ogre::Quaternion authored_rotation =
                 Ogre::Quaternion(Ogre::Degree(prop.rot_z_degrees), Ogre::Vector3::UNIT_Z)
                 * Ogre::Quaternion(Ogre::Degree(prop.rot_y_degrees), Ogre::Vector3::UNIT_Y)
@@ -489,7 +523,7 @@ private:
 
     void UpdateCamera(const RoR::IOSVehicleCore::AuthoredVehicleTelemetry& t)
     {
-        const Ogre::Vector3 target_center = OgreVec(t.center);
+        const Ogre::Vector3 target_center = OgreVec(t.center) + vehicle_world_offset;
         if (!camera_started) { camera_center=target_center; camera_heading=t.heading_radians; camera_started=true; }
         camera_center += (target_center-camera_center)*0.14f;
         camera_heading = WrapAngle(camera_heading + WrapAngle(t.heading_radians-camera_heading)*0.12f);
@@ -508,10 +542,13 @@ private:
 
     Ogre::Root* root=nullptr; Ogre::MetalPlugin* metal_plugin=nullptr; Ogre::RenderWindow* window=nullptr; Ogre::SceneManager* scene=nullptr;
     Ogre::Camera* camera=nullptr; Ogre::SceneNode* camera_node=nullptr; Ogre::ManualObject* body=nullptr; Ogre::ManualObject* wheels=nullptr;
+    std::unique_ptr<RoR::IOSOgre::RoRTerrainScene> terrain;
     std::vector<PropInstance> prop_instances;
     __strong UIView* view=nil;
     bool body_built=false, wheels_built=false, props_built=false, camera_started=false;
     Ogre::Vector3 camera_center=Ogre::Vector3::ZERO;
+    Ogre::Vector3 vehicle_world_offset=Ogre::Vector3::ZERO;
+    std::string terrain_status="NO TERRAIN";
     float camera_heading=0.0f;
     float look_yaw=0.0f;
     float look_pitch=0.0f;
@@ -557,9 +594,6 @@ private:
     UIStackView* pedals=[[UIStackView alloc] initWithArrangedSubviews:@[brake,hb,gas]]; pedals.translatesAutoresizingMaskIntoConstraints=NO; pedals.spacing=10; pedals.distribution=UIStackViewDistributionFillEqually; [self.view addSubview:pedals]; [self.view addSubview:reset];
     [NSLayoutConstraint activateConstraints:@[[_speed.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:18],[_speed.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:14],[_status.leadingAnchor constraintEqualToAnchor:_speed.leadingAnchor],[_status.topAnchor constraintEqualToAnchor:_speed.bottomAnchor constant:2],[steer.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:18],[steer.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16],[steer.widthAnchor constraintEqualToConstant:176],[steer.heightAnchor constraintEqualToConstant:72],[pedals.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-18],[pedals.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16],[pedals.widthAnchor constraintEqualToConstant:260],[pedals.heightAnchor constraintEqualToConstant:72],[reset.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16],[reset.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:12],[reset.widthAnchor constraintEqualToConstant:64],[reset.heightAnchor constraintEqualToConstant:34]]];
 
-    // Drag anywhere in the open center of the scene to orbit the camera. The
-    // recognizer deliberately ignores UIControls so steering/throttle touches
-    // remain independent and can still be held while the other thumb looks.
     _lookPan=[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(lookPan:)];
     _lookPan.maximumNumberOfTouches=1;
     _lookPan.cancelsTouchesInView=NO;
@@ -576,8 +610,6 @@ private:
     while(v){if([v isKindOfClass:UIControl.class])return NO;v=v.superview;}
     const CGPoint p=[touch locationInView:self.view];
     const CGFloat h=MAX(1.0,self.view.bounds.size.height);
-    // Reserve the top HUD strip and the bottom control strip. The broad middle
-    // of the Metal view is the dedicated look surface.
     return p.y>h*0.14 && p.y<h*0.82;
 }
 
@@ -605,7 +637,7 @@ private:
 {
     [self ensureRenderer]; if(_lastFrame>0){double dt=link.timestamp-_lastFrame;if(dt>.0001){float now=1.0f/(float)dt;_fps=_fps<1?now:_fps*.90f+now*.10f;}}_lastFrame=link.timestamp;
     Snapshot s=_simulation->GetSnapshot(); if(_renderer)_renderer->Draw(s,_simulation->Visual()); _speed.text=[NSString stringWithFormat:@"%3.0f MPH",s.telemetry.speed_mps*kMetersToMph];
-    if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\n%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • ROR DAF + PROPS • %.0f FPS\nROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
+    if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\n%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else if(_renderer)_status.text=[NSString stringWithFormat:@"OGRE 14.6 • %s • %.0f FPS\nROR PHYSICS 2,000 HZ • %llu STEPS",_renderer->TerrainStatus().c_str(),_fps,s.telemetry.physics_steps];
 }
 
 - (void)push{_simulation->SetControls((_right?1.f:0.f)-(_left?1.f:0.f),_gas?1.f:0.f,_brake?1.f:0.f,_handbrake);}
