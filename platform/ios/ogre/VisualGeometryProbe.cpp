@@ -38,8 +38,20 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
+    std::size_t textured = 0;
+    for (const auto& triangle : visual.cab_triangles)
+        if (triangle.has_uv) ++textured;
+
+    if (textured < 100)
+    {
+        std::cerr << "FAIL: expected production DAF UV coverage, got "
+                  << textured << '/' << visual.cab_triangles.size() << " textured triangles\n";
+        return EXIT_FAILURE;
+    }
+
     std::cout << "Authored OGRE visual fixture passed: "
               << visual.cab_triangles.size() << " cab triangles, "
+              << textured << " UV-mapped, "
               << visual.wheels.size() << " wheels.\n";
     return EXIT_SUCCESS;
 }
