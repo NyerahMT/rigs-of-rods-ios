@@ -14,6 +14,7 @@ on:
       - 'source/main/physics/collision/GroundFriction.*'
       - 'source/main/resources/rig_def_fileformat/PortableRigDef.*'
       - 'platform/ios/vehicle-core/**'
+      - 'platform/ios/ogre/**'
       - 'platform/ios/app/**'
       - '.github/workflows/ios-vehicle-core.yml'
   pull_request:
@@ -28,13 +29,14 @@ on:
       - 'source/main/physics/collision/GroundFriction.*'
       - 'source/main/resources/rig_def_fileformat/PortableRigDef.*'
       - 'platform/ios/vehicle-core/**'
+      - 'platform/ios/ogre/**'
       - 'platform/ios/app/**'
       - '.github/workflows/ios-vehicle-core.yml'
   workflow_dispatch:
 
 jobs:
   vehicle-core:
-    name: RoR vehicle physics / iPhone ARM64
+    name: RoR vehicle physics + OGRE Metal / iPhone ARM64
     runs-on: macos-15
 
     steps:
@@ -84,6 +86,21 @@ jobs:
           file "$LIB"
           lipo -info "$LIB"
           xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|Calc(Static|Stribeck)FrictionScale|CalcBeamStress|ApplyBeamForce|IntegrateNode|CalcGroundContact|ApplyFlatGroundContact|CalcWheelBrakeTorque|StepWheelNodes|ApplyWheelReactionTorque|StepHydroSteeringState|CalcHydroTargetLength' || true
+
+      - name: Build pinned OGRE 14 Metal for iPhone
+        run: |
+          bash platform/ios/ogre/build-ogre-ios.sh
+
+      - name: Verify OGRE Metal ARM64 artifacts
+        run: |
+          OGRE_MAIN=$(find build/ogre-ios -name 'libOgreMainStatic.a' -print -quit)
+          OGRE_METAL=$(find build/ogre-ios -name 'libRenderSystem_MetalStatic.a' -print -quit)
+          test -n "$OGRE_MAIN"
+          test -n "$OGRE_METAL"
+          lipo -info "$OGRE_MAIN" | grep -q arm64
+          lipo -info "$OGRE_METAL" | grep -q arm64
+          xcrun --sdk iphoneos nm -gU "$OGRE_METAL" | grep -E 'MetalPlugin|MetalRenderSystem' | head -20
+          test "$(cat build/ogre-ios/OGRE_PINNED_COMMIT.txt)" = '5cccbeec824798629931cfd9184bde729610e30d'
 
       - name: Build unsigned authored-vehicle iPhone IPA
         run: |
