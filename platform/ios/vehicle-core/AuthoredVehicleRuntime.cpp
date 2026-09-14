@@ -297,7 +297,6 @@ struct AuthoredVehicleRuntime::Impl
                 binding.inner = &nodes[sides[side]];
                 fixture.bindings.push_back(binding);
 
-                // RoR's generated plain wheel is located from both axle nodes.
                 AddBeam(outer, fixture.axis0, spring, damping, BeamKind::Wheel);
                 AddBeam(outer, fixture.axis1, spring, damping, BeamKind::Wheel);
             }
@@ -493,6 +492,8 @@ struct AuthoredVehicleRuntime::Impl
 
     void ConfigureWheelDirections()
     {
+        // At the contact patch the tire tread must move opposite the vehicle's
+        // intended forward direction so road friction pushes the chassis forward.
         const PhysicsVec3 forward = Forward();
         for (WheelFixture& fixture : wheels)
         {
@@ -501,7 +502,7 @@ struct AuthoredVehicleRuntime::Impl
             down -= axis * down.dot(axis);
             down = Normalized(down);
             const PhysicsVec3 positive_tread = axis.cross(down);
-            fixture.wheel.reverse_rotation = positive_tread.dot(forward) < 0.0f;
+            fixture.wheel.reverse_rotation = positive_tread.dot(forward) > 0.0f;
         }
     }
 
@@ -635,7 +636,6 @@ struct AuthoredVehicleRuntime::Impl
         if (!finite || !errors.empty() || dt <= 0.0f)
             return;
 
-        // Ground contact for generated tire nodes plus explicitly authored contacters.
         for (std::size_t index : tire_nodes)
             ApplyFlatGroundContact(nodes[index], 0.0f, road, dt);
         for (std::size_t index : contact_nodes)
@@ -677,7 +677,13 @@ struct AuthoredVehicleRuntime::Impl
         }
 
         const float authored_engine_torque = rig.engine.present ? std::fabs(rig.engine.torque) : 1200.0f;
-        const float total_drive_torque = std::min(authored_engine_torque, 8000.0f) * throttle_state * 0.55f;
+        const float authored_diff_ratio = rig.engine.present
+            ? std::max(1.0f, std::fabs(rig.engine.differential_ratio))
+            : 1.0f;
+        // Full gearbox/clutch dynamics come later, but the authored differential
+        // ratio is already real vehicle data and belongs in axle torque now.
+        const float total_drive_torque = std::min(authored_engine_torque * authored_diff_ratio, 16000.0f)
+            * throttle_state * 0.65f;
         const float per_driven_torque = driven_count > 0
             ? total_drive_torque / static_cast<float>(driven_count)
             : 0.0f;
