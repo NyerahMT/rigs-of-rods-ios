@@ -14,6 +14,14 @@
 namespace RoR {
 namespace PortableRigDef {
 
+struct Globals
+{
+    bool present = false;
+    float dry_mass = 0.0f;
+    float load_mass = 0.0f;
+    std::string material;
+};
+
 struct Node
 {
     std::string id;
@@ -95,6 +103,7 @@ struct Brakes
 struct Document
 {
     std::string name;
+    Globals globals;
     std::vector<Node> nodes;
     std::vector<Beam> beams;
     std::vector<Hydro> hydros;
@@ -102,12 +111,13 @@ struct Document
     std::vector<Wheel> wheels;
     Engine engine;
     Brakes brakes;
+    std::vector<std::string> contacters;
     std::vector<std::string> warnings;
 };
 
 /// Parses the structural/driveline subset needed by the iOS vehicle-core.
-/// Unknown sections are skipped so real RoR files can be fed to this parser
-/// while support is added incrementally.
+/// Unknown sections are skipped so complete real RoR files can be fed to this
+/// parser while compatibility is added incrementally.
 Document Parse(const std::string& text);
 
 } // namespace PortableRigDef

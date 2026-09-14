@@ -19,6 +19,7 @@ namespace {
 enum class Section
 {
     None,
+    Globals,
     Nodes,
     Beams,
     Hydros,
@@ -28,6 +29,7 @@ enum class Section
     Wheels2,
     Engine,
     Brakes,
+    Contacters,
     Unknown
 };
 
@@ -108,6 +110,7 @@ int ToInt(const std::string& text, int fallback = 0)
 
 Section SectionForKeyword(const std::string& keyword)
 {
+    if (keyword == "globals") return Section::Globals;
     if (keyword == "nodes" || keyword == "nodes2") return Section::Nodes;
     if (keyword == "beams") return Section::Beams;
     if (keyword == "hydros") return Section::Hydros;
@@ -117,6 +120,7 @@ Section SectionForKeyword(const std::string& keyword)
     if (keyword == "wheels2") return Section::Wheels2;
     if (keyword == "engine") return Section::Engine;
     if (keyword == "brakes") return Section::Brakes;
+    if (keyword == "contacters") return Section::Contacters;
     return Section::Unknown;
 }
 
@@ -131,12 +135,13 @@ bool IsUnsupportedSectionKeyword(const std::string& keyword)
     // blocks are not accidentally interpreted as data for the previous block.
     static const char* sections[] = {
         "airbrakes", "animators", "axles", "cameras", "camerarail", "cinecam",
-        "commands", "commands2", "contacters", "exhausts", "flares", "flares2",
-        "flexbodies", "flexbodywheels", "fixes", "hooks", "interaxles", "lockgroups",
-        "managedmaterials", "meshwheels", "meshwheels2", "particles", "props",
-        "railgroups", "ropables", "ropes", "rotators", "rotators2", "screwprops",
-        "shocks3", "slidenodes", "soundsources", "soundsources2", "submesh",
-        "ties", "torquecurve", "triggers", "turbojets", "turboprops", "wings"
+        "commands", "commands2", "exhausts", "flares", "flares2", "flexbodies",
+        "flexbodywheels", "fixes", "forwardcommands", "help", "hooks", "interaxles",
+        "lockgroups", "managedmaterials", "meshwheels", "meshwheels2", "particles",
+        "props", "railgroups", "ropables", "ropes", "rotators", "rotators2",
+        "screwprops", "shocks3", "slidenodes", "soundsources", "soundsources2",
+        "submesh", "ties", "torquecurve", "triggers", "turbojets", "turboprops",
+        "wings"
     };
     for (const char* section : sections)
     {
@@ -220,6 +225,22 @@ Document Parse(const std::string& text)
 
         switch (section)
         {
+        case Section::Globals:
+            if (tokens.size() < 2)
+            {
+                Warn(document, line_number, "globals requires dry mass and load mass");
+                section = Section::None;
+                break;
+            }
+            document.globals.present = true;
+            document.globals.dry_mass = ToFloat(tokens[0]);
+            document.globals.load_mass = ToFloat(tokens[1]);
+            if (tokens.size() > 2)
+                document.globals.material = tokens[2];
+            // globals is a single-line block in the classic truck format.
+            section = Section::None;
+            break;
+
         case Section::Nodes:
             if (tokens.size() < 4)
             {
@@ -384,6 +405,10 @@ Document Parse(const std::string& text)
             document.brakes.service_force = ToFloat(tokens[0], 30000.0f);
             if (tokens.size() > 1)
                 document.brakes.parking_force = ToFloat(tokens[1], -1.0f);
+            break;
+
+        case Section::Contacters:
+            document.contacters.push_back(tokens[0]);
             break;
 
         case Section::None:

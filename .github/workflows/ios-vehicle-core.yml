@@ -47,6 +47,12 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-path
           clang++ --version
 
+      - name: Verify pinned authored fixture
+        run: |
+          test -s platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
+          grep -q '^Daf Semi truck$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
+          grep -q '10000.0,  0.0, b6b0UID-tracks/semi' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
+
       - name: Build and run native behavior probes
         run: |
           cmake \
@@ -79,11 +85,11 @@ jobs:
           lipo -info "$LIB"
           xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|Calc(Static|Stribeck)FrictionScale|CalcBeamStress|ApplyBeamForce|IntegrateNode|CalcGroundContact|ApplyFlatGroundContact|CalcWheelBrakeTorque|StepWheelNodes|ApplyWheelReactionTorque|StepHydroSteeringState|CalcHydroTargetLength' || true
 
-      - name: Build unsigned iPhone IPA
+      - name: Build unsigned authored-vehicle iPhone IPA
         run: |
           platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app
 
-      - name: Verify IPA bundle
+      - name: Verify IPA bundle and authored truck
         run: |
           test -f build/ios-app/RoRIOSProbe.ipa
           rm -rf build/ipa-verify
@@ -91,15 +97,17 @@ jobs:
           unzip -q build/ios-app/RoRIOSProbe.ipa -d build/ipa-verify
           test -f build/ipa-verify/Payload/RoRIOSProbe.app/RoRIOSProbe
           test -f build/ipa-verify/Payload/RoRIOSProbe.app/Info.plist
+          test -s build/ipa-verify/Payload/RoRIOSProbe.app/Content/dafsemi/b6b0UID-semi.truck
+          grep -q '^Daf Semi truck$' build/ipa-verify/Payload/RoRIOSProbe.app/Content/dafsemi/b6b0UID-semi.truck
           file build/ipa-verify/Payload/RoRIOSProbe.app/RoRIOSProbe
           lipo -info build/ipa-verify/Payload/RoRIOSProbe.app/RoRIOSProbe
           plutil -lint build/ipa-verify/Payload/RoRIOSProbe.app/Info.plist
           du -h build/ios-app/RoRIOSProbe.ipa
 
-      - name: Upload unsigned iPhone IPA
+      - name: Upload unsigned authored-vehicle iPhone IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ror-ios-probe-ipa
+          name: ror-ios-authored-vehicle-ipa
           path: build/ios-app/RoRIOSProbe.ipa
           if-no-files-found: error
 

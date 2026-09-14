@@ -1,12 +1,13 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/QuartzCore.h>
 
-#include "DriftDemoRuntime.h"
+#include "AuthoredVehicleRuntime.h"
 #include "SimConstants.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <string>
 
 namespace {
 constexpr double kMaxFrameCatchup = 0.05;
@@ -17,7 +18,7 @@ constexpr float kMetersToMph = 2.23693629f;
 @interface RoRDriveView : UIView
 {
 @private
-    RoR::IOSVehicleCore::DriftDemoRuntime* _car;
+    RoR::IOSVehicleCore::AuthoredVehicleRuntime* _car;
     CADisplayLink* _displayLink;
     CFTimeInterval _lastTimestamp;
     double _accumulator;
@@ -25,6 +26,7 @@ constexpr float kMetersToMph = 2.23693629f;
     float _throttleInput;
     float _brakeInput;
     BOOL _handbrakeInput;
+    NSString* _loadError;
 }
 - (void)setSteeringInput:(float)value;
 - (void)setThrottleInput:(float)value;
@@ -43,7 +45,21 @@ constexpr float kMetersToMph = 2.23693629f;
     {
         self.backgroundColor = [UIColor colorWithRed:0.025 green:0.030 blue:0.034 alpha:1.0];
         self.userInteractionEnabled = NO;
-        _car = new RoR::IOSVehicleCore::DriftDemoRuntime();
+
+        NSString* path = [[NSBundle mainBundle] pathForResource:@"b6b0UID-semi"
+                                                        ofType:@"truck"
+                                                   inDirectory:@"Content/dafsemi"];
+        NSError* readError = nil;
+        NSString* authoredText = path
+            ? [NSString stringWithContentsOfFile:path encoding:NSUTF8StringEncoding error:&readError]
+            : nil;
+        if (!authoredText)
+        {
+            _loadError = readError.localizedDescription ?: @"Bundled authored DAF .truck file was not found";
+        }
+        const char* utf8 = authoredText ? authoredText.UTF8String : "";
+        _car = new RoR::IOSVehicleCore::AuthoredVehicleRuntime(std::string(utf8 ? utf8 : ""));
+
         _lastTimestamp = 0.0;
         _accumulator = 0.0;
         _steeringInput = 0.0f;
@@ -105,8 +121,9 @@ constexpr float kMetersToMph = 2.23693629f;
 
 - (void)stepFrame:(CADisplayLink*)link
 {
-    if (!_car)
+    if (!_car || !_car->Ready())
     {
+        [self setNeedsDisplay];
         return;
     }
 
@@ -132,15 +149,13 @@ constexpr float kMetersToMph = 2.23693629f;
     }
 
     if (stepsThisFrame == kMaxPhysicsStepsPerFrame)
-    {
         _accumulator = 0.0;
-    }
 
     [self setNeedsDisplay];
 }
 
 - (CGPoint)projectWorldPoint:(const RoR::PhysicsVec3&)point
-                  telemetry:(const RoR::IOSVehicleCore::DriftDemoTelemetry&)telemetry
+                  telemetry:(const RoR::IOSVehicleCore::AuthoredVehicleTelemetry&)telemetry
                       scale:(CGFloat)scale
 {
     const float dx = point.x - telemetry.center.x;
@@ -156,14 +171,14 @@ constexpr float kMetersToMph = 2.23693629f;
 }
 
 - (void)drawGrid:(CGContextRef)context
-       telemetry:(const RoR::IOSVehicleCore::DriftDemoTelemetry&)telemetry
+       telemetry:(const RoR::IOSVehicleCore::AuthoredVehicleTelemetry&)telemetry
            scale:(CGFloat)scale
 {
     CGContextSaveGState(context);
     CGContextSetLineWidth(context, 1.0);
     CGContextSetStrokeColorWithColor(context, [UIColor colorWithWhite:1.0 alpha:0.055].CGColor);
 
-    const float span = 18.0f;
+    const float span = 28.0f;
     const int minX = static_cast<int>(std::floor((telemetry.center.x - span) / 2.0f));
     const int maxX = static_cast<int>(std::ceil((telemetry.center.x + span) / 2.0f));
     const int minZ = static_cast<int>(std::floor((telemetry.center.z - span) / 2.0f));
@@ -197,11 +212,31 @@ constexpr float kMetersToMph = 2.23693629f;
 - (BOOL)isTireNode:(std::size_t)index
 {
     if (!_car)
-    {
         return NO;
-    }
     const std::vector<std::size_t>& tireNodes = _car->TireNodeIndices();
     return std::find(tireNodes.begin(), tireNodes.end(), index) != tireNodes.end();
+}
+
+- (void)drawLoadFailure:(CGContextRef)context
+{
+    CGContextSetFillColorWithColor(context, [UIColor colorWithRed:0.28 green:0.02 blue:0.02 alpha:0.90].CGColor);
+    CGContextFillRect(context, self.bounds);
+
+    NSString* detail = _loadError;
+    if (!detail && _car && !_car->Errors().empty())
+        detail = [NSString stringWithUTF8String:_car->Errors().front().c_str()];
+    if (!detail)
+        detail = @"Unknown authored vehicle load error";
+
+    NSString* warning = [NSString stringWithFormat:@"AUTHORED VEHICLE LOAD FAILED\n%@", detail];
+    NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+    paragraph.alignment = NSTextAlignmentCenter;
+    NSDictionary* attrs = @{
+        NSFontAttributeName: [UIFont monospacedSystemFontOfSize:18.0 weight:UIFontWeightBold],
+        NSForegroundColorAttributeName: UIColor.whiteColor,
+        NSParagraphStyleAttributeName: paragraph
+    };
+    [warning drawInRect:CGRectInset(self.bounds, 28.0, self.bounds.size.height * 0.30) withAttributes:attrs];
 }
 
 - (void)drawRect:(CGRect)rect
@@ -211,25 +246,27 @@ constexpr float kMetersToMph = 2.23693629f;
 
     CGContextRef context = UIGraphicsGetCurrentContext();
     if (!context || !_car)
+        return;
+
+    if (!_car->Ready())
     {
+        [self drawLoadFailure:context];
         return;
     }
 
-    const RoR::IOSVehicleCore::DriftDemoTelemetry telemetry = _car->Telemetry();
-    const CGFloat scale = std::max<CGFloat>(52.0, std::min(self.bounds.size.width, self.bounds.size.height) * 0.145);
+    const RoR::IOSVehicleCore::AuthoredVehicleTelemetry telemetry = _car->Telemetry();
+    const CGFloat scale = std::max<CGFloat>(46.0, std::min(self.bounds.size.width, self.bounds.size.height) * 0.125);
 
     [self drawGrid:context telemetry:telemetry scale:scale];
 
-    // Soft-body structure.
+    // Every visible line is a live authored/generated beam from the solver.
     CGContextSetLineCap(context, kCGLineCapRound);
-    CGContextSetLineWidth(context, 1.15);
-    CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:0.20 green:0.77 blue:0.92 alpha:0.48].CGColor);
+    CGContextSetLineWidth(context, 1.0);
+    CGContextSetStrokeColorWithColor(context, [UIColor colorWithRed:0.18 green:0.72 blue:0.96 alpha:0.42].CGColor);
     for (const auto& beam : _car->BeamPairs())
     {
         if (beam.first >= _car->NodeCount() || beam.second >= _car->NodeCount())
-        {
             continue;
-        }
         const CGPoint a = [self projectWorldPoint:_car->Node(beam.first).position telemetry:telemetry scale:scale];
         const CGPoint b = [self projectWorldPoint:_car->Node(beam.second).position telemetry:telemetry scale:scale];
         CGContextMoveToPoint(context, a.x, a.y);
@@ -237,26 +274,24 @@ constexpr float kMetersToMph = 2.23693629f;
     }
     CGContextStrokePath(context);
 
-    // Nodes: tire nodes get a brighter, slightly larger marker so the wheel rings are readable.
     for (std::size_t i = 0; i < _car->NodeCount(); ++i)
     {
         const BOOL tire = [self isTireNode:i];
         const CGPoint p = [self projectWorldPoint:_car->Node(i).position telemetry:telemetry scale:scale];
-        const CGFloat radius = tire ? 2.7 : 2.2;
+        const CGFloat radius = tire ? 2.25 : 1.75;
         const CGRect dot = CGRectMake(p.x - radius, p.y - radius, radius * 2.0, radius * 2.0);
         UIColor* color = tire
-            ? [UIColor colorWithRed:0.92 green:0.95 blue:0.98 alpha:0.95]
-            : [UIColor colorWithRed:0.20 green:0.95 blue:0.58 alpha:0.90];
+            ? [UIColor colorWithRed:0.96 green:0.97 blue:0.99 alpha:0.96]
+            : [UIColor colorWithRed:0.20 green:0.95 blue:0.58 alpha:0.84];
         CGContextSetFillColorWithColor(context, color.CGColor);
         CGContextFillEllipseInRect(context, dot);
     }
 
-    // Forward marker makes the chase orientation obvious even while the chassis yaws underneath load.
     CGContextSetStrokeColorWithColor(context, UIColor.systemOrangeColor.CGColor);
     CGContextSetLineWidth(context, 3.0);
     const CGPoint markerBase = CGPointMake(CGRectGetMidX(self.bounds), CGRectGetMidY(self.bounds) - 4.0);
-    CGContextMoveToPoint(context, markerBase.x, markerBase.y - 72.0);
-    CGContextAddLineToPoint(context, markerBase.x, markerBase.y - 94.0);
+    CGContextMoveToPoint(context, markerBase.x, markerBase.y - 86.0);
+    CGContextAddLineToPoint(context, markerBase.x, markerBase.y - 108.0);
     CGContextStrokePath(context);
 
     if (!_car->IsFinite())
@@ -264,10 +299,12 @@ constexpr float kMetersToMph = 2.23693629f;
         CGContextSetFillColorWithColor(context, [UIColor colorWithRed:0.35 green:0.02 blue:0.02 alpha:0.82].CGColor);
         CGContextFillRect(context, self.bounds);
         NSString* warning = @"PHYSICS STOPPED\nTap RESET";
+        NSMutableParagraphStyle* paragraph = [[NSMutableParagraphStyle alloc] init];
+        paragraph.alignment = NSTextAlignmentCenter;
         NSDictionary* attrs = @{
             NSFontAttributeName: [UIFont monospacedSystemFontOfSize:24.0 weight:UIFontWeightBold],
             NSForegroundColorAttributeName: UIColor.whiteColor,
-            NSParagraphStyleAttributeName: ({ NSMutableParagraphStyle* p = [[NSMutableParagraphStyle alloc] init]; p.alignment = NSTextAlignmentCenter; p; })
+            NSParagraphStyleAttributeName: paragraph
         };
         [warning drawInRect:CGRectInset(self.bounds, 24.0, self.bounds.size.height * 0.38) withAttributes:attrs];
     }
@@ -276,16 +313,19 @@ constexpr float kMetersToMph = 2.23693629f;
 - (NSString*)hudText
 {
     if (!_car)
-    {
-        return @"RWD SOFT-BODY DEMO — OFFLINE";
-    }
-    const RoR::IOSVehicleCore::DriftDemoTelemetry t = _car->Telemetry();
+        return @"AUTHORED ROR VEHICLE — OFFLINE";
+    if (!_car->Ready())
+        return @"AUTHORED ROR VEHICLE — LOAD FAILED";
+
+    const RoR::IOSVehicleCore::AuthoredVehicleTelemetry t = _car->Telemetry();
     const float mph = t.speed_mps * kMetersToMph;
-    const float rearMph = t.rear_wheel_speed_mps * kMetersToMph;
+    const float treadMph = t.driven_wheel_speed_mps * kMetersToMph;
+    NSString* name = [NSString stringWithUTF8String:_car->VehicleName().c_str()];
     return [NSString stringWithFormat:
-        @"RIGS OF RODS — RWD SOFT-BODY DEMO\n%.1f mph  •  rear tread %.1f mph  •  2,000 Hz\n%lu nodes  •  %lu beams  •  %llu steps%@",
+        @"%@ — REAL ROR IMPORT\n%.1f mph  •  driven tread %.1f mph  •  2,000 Hz\n%lu nodes  •  %lu beams  •  %llu steps%@",
+        name ?: @"AUTHORED VEHICLE",
         mph,
-        rearMph,
+        treadMph,
         (unsigned long)_car->NodeCount(),
         (unsigned long)_car->BeamPairs().size(),
         t.physics_steps,
@@ -377,9 +417,9 @@ constexpr float kMetersToMph = 2.23693629f;
 
     UILabel* note = [[UILabel alloc] init];
     note.translatesAutoresizingMaskIntoConstraints = NO;
-    note.text = @"portable car bring-up • live node/beam chassis + deformable tires";
+    note.text = @"complete upstream DAF .truck • authored chassis, shocks, hydros + generated RoR wheels";
     note.textColor = [UIColor colorWithWhite:1.0 alpha:0.48];
-    note.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightMedium];
+    note.font = [UIFont systemFontOfSize:10.5 weight:UIFontWeightMedium];
     note.textAlignment = NSTextAlignmentCenter;
     note.numberOfLines = 1;
     [self.view addSubview:note];

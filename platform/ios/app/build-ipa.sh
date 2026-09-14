@@ -7,6 +7,7 @@ OUT_DIR="${2:-$ROOT/build/ios-app}"
 APP_NAME="RoRIOSProbe"
 APP_DIR="$OUT_DIR/Payload/$APP_NAME.app"
 IPA="$OUT_DIR/$APP_NAME.ipa"
+FIXTURE="$ROOT/platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck"
 
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CXX="$(xcrun --sdk iphoneos --find clang++)"
@@ -16,10 +17,15 @@ if [[ -z "$LIB" ]]; then
     echo "error: libror_vehicle_core.a not found under $CORE_BUILD" >&2
     exit 1
 fi
+if [[ ! -f "$FIXTURE" ]]; then
+    echo "error: authored DAF vehicle fixture missing: $FIXTURE" >&2
+    exit 1
+fi
 
 rm -rf "$OUT_DIR"
-mkdir -p "$APP_DIR"
+mkdir -p "$APP_DIR/Content/dafsemi"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
+cp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 
 "$CXX" \
     -arch arm64 \
@@ -43,6 +49,7 @@ chmod +x "$APP_DIR/$APP_NAME"
 plutil -lint "$APP_DIR/Info.plist"
 file "$APP_DIR/$APP_NAME"
 lipo -info "$APP_DIR/$APP_NAME"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 
 (
     cd "$OUT_DIR"
@@ -50,4 +57,4 @@ lipo -info "$APP_DIR/$APP_NAME"
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned IPA: $IPA"
+echo "Built unsigned IPA with complete authored DAF fixture: $IPA"
