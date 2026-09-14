@@ -41,8 +41,20 @@ find "$EXTRACT" -type f \( -iname '*.wav' -o -iname '*.ogg' -o -iname '*.flac' \
 echo '--- Foxbody visual assets (sample) ---'
 find "$EXTRACT" -type f \( -iname '*.mesh' -o -iname '*.material' -o -iname '*.dds' -o -iname '*.png' \) -print | sort | sed -n '1,120p'
 
-echo '--- Flexbody/cab/soundsource markers ---'
+echo '--- Foxbody structural markers ---'
 find "$EXTRACT" -type f \( -iname '*.truck' -o -iname '*.car' \) -print0 | while IFS= read -r -d '' file; do
     echo "### $file"
-    grep -En '^(flexbodies|flexbody|cab|submesh|soundsources|soundsources2|engine|engoption|engineoptions)$' "$file" || true
+    grep -Ein '^[[:space:]]*(flexbodies|flexbody|cab|submesh|soundsources|soundsources2|engine|engoption|engineoptions)([[:space:]]|$)' "$file" || true
+    echo '-- engine/driveline-looking lines --'
+    grep -Ein '351|526|510|rpm|torque|gear|soundsource' "$file" | sed -n '1,100p' || true
+    echo '-- mesh references --'
+    grep -Eio '[A-Za-z0-9_./+-]+\.mesh' "$file" | sort -u | sed -n '1,160p' || true
+    echo '-- first 80 non-comment lines --'
+    sed -e 's/[;#].*$//' -e '/^[[:space:]]*$/d' "$file" | sed -n '1,80p'
+done
+
+echo '--- Foxbody soundscript contents ---'
+find "$EXTRACT" -type f -iname '*.soundscript' -print0 | while IFS= read -r -d '' file; do
+    echo "### $file"
+    cat "$file"
 done
