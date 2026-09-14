@@ -27,6 +27,8 @@ struct AuthoredVehicleTelemetry
     float speed_mps = 0.0f;
     float forward_speed_mps = 0.0f;
     float driven_wheel_speed_mps = 0.0f;
+    float engine_rpm = 0.0f;
+    int gear = 0;
     float steering = 0.0f;
     float throttle = 0.0f;
     bool handbrake = false;
