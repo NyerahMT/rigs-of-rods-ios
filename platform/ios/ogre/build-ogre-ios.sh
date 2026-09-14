@@ -18,6 +18,39 @@ git -C "$OGRE_SRC" checkout --detach --force "$OGRE_COMMIT"
 echo "Building pinned OGRE commit: $(git -C "$OGRE_SRC" rev-parse HEAD)"
 grep -q 'project(OGRE VERSION 14.6.0)' "$OGRE_SRC/CMakeLists.txt"
 
+# OGRE 14.6's iOS MetalRenderWindow is created before its OgreMetalView is
+# attached to a UIWindow. On a physical device CAMetalLayer.drawableSize can
+# therefore still be 0x0 when the first frames are submitted. Upstream relies
+# on didMoveToWindow/layoutSubviews setting layerSizeDidUpdate and on a later
+# nextDrawable() call repairing the target lazily. Our UIKit-hosted render loop
+# can begin before that sequence has completed, leaving a live black view.
+#
+# Keep the pinned upstream source immutable in git, but apply this tiny build-
+# time platform fix: seed a real pixel drawable size at create time and verify
+# it against the attached UIKit view before every drawable acquisition.
+python3 - "$OGRE_SRC" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1]) / "RenderSystems/Metal/src/OgreMetalRenderWindow.mm"
+text = src.read_text()
+
+create_old = """        mMetalLayer.framebufferOnly = YES;\n\n        this->init( nil, nil );\n"""
+create_new = """        mMetalLayer.framebufferOnly = YES;\n\n#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS\n        // The view is not necessarily attached to a UIWindow yet. Seed the\n        // backing store explicitly so the RenderTarget never begins life at\n        // 0x0 pixels. didMoveToWindow/layoutSubviews will refine it later.\n        const CGFloat initialScale = [UIScreen mainScreen].nativeScale;\n        [mMetalView setContentScaleFactor:initialScale];\n        mMetalLayer.contentsScale = initialScale;\n        mMetalLayer.drawableSize = CGSizeMake(frame.size.width * initialScale,\n                                               frame.size.height * initialScale);\n        mMetalView.layerSizeDidUpdate = YES;\n#endif\n\n        this->init( nil, nil );\n"""
+if create_old not in text:
+    raise SystemExit("OGRE iOS Metal create() patch anchor changed")
+text = text.replace(create_old, create_new, 1)
+
+next_old = """                if( mMetalView.layerSizeDidUpdate )\n                    checkLayerSizeChanges();\n\n                // do not retain current drawable beyond the frame.\n"""
+next_new = """#if OGRE_PLATFORM == OGRE_PLATFORM_APPLE_IOS\n                // When hosted inside UIKit, do not depend solely on the\n                // asynchronous layout flag. Keep CAMetalLayer's pixel backing\n                // size in lock-step with the attached view before nextDrawable.\n                if( mMetalView.window )\n                {\n                    const CGFloat scale = mMetalView.contentScaleFactor > 0.0 ?\n                                              mMetalView.contentScaleFactor :\n                                              mMetalView.window.screen.nativeScale;\n                    const CGSize expected = CGSizeMake(mMetalView.bounds.size.width * scale,\n                                                       mMetalView.bounds.size.height * scale);\n                    if( !CGSizeEqualToSize(mMetalLayer.drawableSize, expected) )\n                    {\n                        mMetalLayer.contentsScale = scale;\n                        mMetalLayer.drawableSize = expected;\n                        mMetalView.layerSizeDidUpdate = YES;\n                    }\n                }\n#endif\n                if( mMetalView.layerSizeDidUpdate )\n                    checkLayerSizeChanges();\n\n                // do not retain current drawable beyond the frame.\n"""
+if next_old not in text:
+    raise SystemExit("OGRE iOS Metal nextDrawable() patch anchor changed")
+text = text.replace(next_old, next_new, 1)
+
+src.write_text(text)
+print("Applied iOS Metal drawable-size synchronization patch")
+PY
+
 rm -rf "$OGRE_BUILD"
 
 cmake \
