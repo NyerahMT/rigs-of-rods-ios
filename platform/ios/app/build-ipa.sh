@@ -45,7 +45,8 @@ for REQUIRED in \
     "$OGRE_SRC/Media/Main/DefaultShaders.metal" \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
     "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl" \
-    "$ROOT/platform/ios/ogre/MetalShaderProbe.mm"; do
+    "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
+    "$ROOT/platform/ios/ogre/convert_dxt_to_raw_rgba.py"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
         exit 1
@@ -59,17 +60,24 @@ cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
 
+# OGRE 14's Metal backend does not expose DXT/BC pixel formats on iOS. Rather
+# than depend on the legacy DDS software-decode/upload path, transcode the two
+# stock DAF textures into an explicit raw RGBA8 container that the app uploads
+# into OGRE textures itself. The source DDS files remain bundled unchanged.
+python3 "$ROOT/platform/ios/ogre/convert_dxt_to_raw_rgba.py" \
+    "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" \
+    "$APP_DIR/Content/dafsemi/b6b0UID-semi-ios.rgba"
+python3 "$ROOT/platform/ios/ogre/convert_dxt_to_raw_rgba.py" \
+    "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" \
+    "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-ios.rgba"
+
 cp -R "$OGRE_SRC/Media/Main/." "$APP_DIR/OgreMedia/Main/"
 cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 
 # OGRE does not feed its runtime shader to the standalone `metal` command.
 # MetalProgram resolves OgreUnifiedShader.h through OGRE's resource system and
 # then calls MTLDevice::newLibraryWithSource with OGRE's stage macros. Reproduce
-# that path on the macOS CI host so shader syntax and entry points are validated
-# without creating a false failure from a different compilation environment.
-# Explicitly select the macOS SDK here: the GitHub runner's bare clang lookup can
-# otherwise fall back to /System/Library/Frameworks, where SDK headers such as
-# Foundation/Foundation.h are intentionally absent.
+# that path on the macOS CI host so shader syntax and entry points are validated.
 "$HOST_CXX" \
     -isysroot "$HOST_SDK" \
     -fobjc-arc \
@@ -121,6 +129,8 @@ test -x "$OUT_DIR/metal-shader-probe"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi-ios.rgba"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-ios.rgba"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.material"
 test -s "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
