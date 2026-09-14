@@ -46,7 +46,7 @@ for REQUIRED in \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
     "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl" \
     "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
-    "$ROOT/platform/ios/ogre/convert_dxt_to_raw_rgba.py"; do
+    "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
         exit 1
@@ -60,16 +60,33 @@ cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
 
-# OGRE 14's Metal backend does not expose DXT/BC pixel formats on iOS. Rather
-# than depend on the legacy DDS software-decode/upload path, transcode the two
-# stock DAF textures into an explicit raw RGBA8 container that the app uploads
-# into OGRE textures itself. The source DDS files remain bundled unchanged.
-python3 "$ROOT/platform/ios/ogre/convert_dxt_to_raw_rgba.py" \
+# The stock DAF diffuse is DXT3 and its emissive map is DXT1. OGRE 14's Metal
+# backend deliberately does not expose BC/DXT texture formats on iOS, so the
+# runtime otherwise takes a legacy software-decode path. The on-device result
+# showed corrupted colour channels (white atlas regions became yellow). Keep the
+# exact official artwork and filenames, but package these two textures as
+# uncompressed A8R8G8B8/BGRA8 DDS. This is a native Metal texture format and
+# completely removes DXT decoding from the iPhone runtime path.
+cp "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" "$APP_DIR/Content/dafsemi/b6b0UID-semi-source.dds"
+cp "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-source.dds"
+python3 "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
     "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" \
-    "$APP_DIR/Content/dafsemi/b6b0UID-semi-ios.rgba"
-python3 "$ROOT/platform/ios/ogre/convert_dxt_to_raw_rgba.py" \
+    "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds"
+python3 "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
     "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" \
-    "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-ios.rgba"
+    "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
+
+# Fail packaging if either iOS texture somehow remains FourCC-compressed.
+python3 - "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds" "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds" <<'PY'
+import struct, sys
+for path in sys.argv[1:]:
+    data = open(path, 'rb').read(128)
+    assert data[:4] == b'DDS ', path
+    assert data[84:88] == b'\0\0\0\0', f'{path}: still FourCC/DXT'
+    assert struct.unpack_from('<I', data, 88)[0] == 32, f'{path}: not 32bpp'
+    masks = tuple(struct.unpack_from('<I', data, o)[0] for o in (92,96,100,104))
+    assert masks == (0x00FF0000,0x0000FF00,0x000000FF,0xFF000000), f'{path}: wrong BGRA masks'
+PY
 
 cp -R "$OGRE_SRC/Media/Main/." "$APP_DIR/OgreMedia/Main/"
 cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.metal"
@@ -129,8 +146,8 @@ test -x "$OUT_DIR/metal-shader-probe"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
-test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi-ios.rgba"
-test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-ios.rgba"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi-source.dds"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-source.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.material"
 test -s "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
