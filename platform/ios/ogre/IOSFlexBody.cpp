@@ -205,9 +205,11 @@ bool IOSFlexBody::Build(const std::vector<Ogre::Vector3>& initial_nodes,
             return false;
         }
 
-        // RoR's native FlexBody uses separate dynamic streams for position,
-        // normal and UV. Reproduce that declaration so every deforming vertex
-        // buffer is discardable and Metal sees a stable layout.
+        // Desktop RoR's FlexBody asks OGRE to reorganise position, normal and UV
+        // into separate dynamic streams. OGRE 14 keeps the explicit usage-list
+        // overload private, so use its public reorganisation API first and then
+        // promote the two streams we actually rewrite every frame to CPU->GPU
+        // buffers. UV remains static.
         Ogre::VertexDeclaration* optimal =
             Ogre::HardwareBufferManager::getSingleton().createVertexDeclaration();
         optimal->addElement(0, 0, Ogre::VET_FLOAT3, Ogre::VES_POSITION);
@@ -215,25 +217,44 @@ bool IOSFlexBody::Build(const std::vector<Ogre::Vector3>& initial_nodes,
         optimal->addElement(2, 0, Ogre::VET_FLOAT2, Ogre::VES_TEXTURE_COORDINATES);
         optimal->sort();
         optimal->closeGapsInSource();
-        Ogre::BufferUsageList usages;
-        for (std::size_t source_index = 0; source_index <= optimal->getMaxSource(); ++source_index)
-            usages.push_back(Ogre::HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE);
+
+        auto promote_dynamic_stream = [&](Ogre::VertexData* data,
+                                          Ogre::VertexElementSemantic semantic)
+        {
+            const Ogre::VertexElement* element =
+                data->vertexDeclaration->findElementBySemantic(semantic);
+            if (!element) return;
+
+            const unsigned short source_index = element->getSource();
+            Ogre::HardwareVertexBufferSharedPtr original =
+                data->vertexBufferBinding->getBuffer(source_index);
+            Ogre::HardwareVertexBufferSharedPtr replacement =
+                Ogre::HardwareBufferManager::getSingleton().createVertexBuffer(
+                    original->getVertexSize(), original->getNumVertices(),
+                    Ogre::HardwareBuffer::HBU_DYNAMIC_WRITE_ONLY_DISCARDABLE,
+                    original->hasShadowBuffer());
+            replacement->copyData(*original, 0, 0, original->getSizeInBytes(), true);
+            data->vertexBufferBinding->setBinding(source_index, replacement);
+        };
+
+        auto reorganise_flex_vertex_data = [&](Ogre::VertexData* data,
+                                                Ogre::VertexDeclaration* declaration)
+        {
+            if (!data) return;
+            data->reorganiseBuffers(declaration);
+            data->removeUnusedBuffers();
+            data->closeGapsInBindings();
+            promote_dynamic_stream(data, Ogre::VES_POSITION);
+            promote_dynamic_stream(data, Ogre::VES_NORMAL);
+        };
 
         if (m_mesh->sharedVertexData)
-        {
-            m_mesh->sharedVertexData->reorganiseBuffers(optimal, usages);
-            m_mesh->sharedVertexData->removeUnusedBuffers();
-            m_mesh->sharedVertexData->closeGapsInBindings();
-        }
+            reorganise_flex_vertex_data(m_mesh->sharedVertexData, optimal);
         for (unsigned short i = 0; i < m_mesh->getNumSubMeshes(); ++i)
         {
             Ogre::SubMesh* submesh = m_mesh->getSubMesh(i);
             if (!submesh->useSharedVertices)
-            {
-                submesh->vertexData->reorganiseBuffers(optimal->clone(), usages);
-                submesh->vertexData->removeUnusedBuffers();
-                submesh->vertexData->closeGapsInBindings();
-            }
+                reorganise_flex_vertex_data(submesh->vertexData, optimal->clone());
         }
 
         std::size_t vertex_count = m_mesh->sharedVertexData ? m_mesh->sharedVertexData->vertexCount : 0;
