@@ -17,7 +17,15 @@ CORE_LIB="$(find "$CORE_BUILD" -name 'libror_vehicle_core.a' -print -quit)"
 OGRE_MAIN="$(find "$OGRE_BUILD" -name 'libOgreMainStatic.a' -print -quit)"
 OGRE_METAL="$(find "$OGRE_BUILD" -name 'libRenderSystem_MetalStatic.a' -print -quit)"
 
-for REQUIRED in "$CORE_LIB" "$OGRE_MAIN" "$OGRE_METAL" "$FIXTURE" "$OGRE_SRC/Media/Main/OgreUnifiedShader.h" "$OGRE_SRC/Media/Main/DefaultShaders.metal"; do
+for REQUIRED in \
+    "$CORE_LIB" \
+    "$OGRE_MAIN" \
+    "$OGRE_METAL" \
+    "$FIXTURE" \
+    "$OGRE_SRC/Media/Main/OgreUnifiedShader.h" \
+    "$OGRE_SRC/Media/Main/DefaultShaders.metal" \
+    "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
+    "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE input missing: $REQUIRED" >&2
         exit 1
@@ -28,8 +36,11 @@ rm -rf "$OUT_DIR"
 mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/OgreMedia/Main"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
 cp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
-cp "$OGRE_SRC/Media/Main/OgreUnifiedShader.h" "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
-cp "$OGRE_SRC/Media/Main/DefaultShaders.metal" "$APP_DIR/OgreMedia/Main/DefaultShaders.metal"
+
+# OGRE's runtime include resolver walks unified shader includes before Metal's
+# preprocessor eliminates the HLSL/GLSL branches. Keep the complete pinned
+# Media/Main support set together instead of cherry-picking Metal-only files.
+cp -R "$OGRE_SRC/Media/Main/." "$APP_DIR/OgreMedia/Main/"
 cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 
 "$CXX" \
@@ -68,6 +79,8 @@ lipo -info "$APP_DIR/$APP_NAME"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 test -s "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
+test -s "$APP_DIR/OgreMedia/Main/HLSL_SM4Support.hlsl"
+test -s "$APP_DIR/OgreMedia/Main/GLSL_GL3Support.glsl"
 
 # Static linking should leave concrete OGRE/Metal symbols in the final image.
 xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' | head -20
