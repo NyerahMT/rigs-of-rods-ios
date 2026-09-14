@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CORE_BUILD="${1:-$ROOT/build/vehicle-core-ios}"
 OUT_DIR="${2:-$ROOT/build/ios-app}"
 OGRE_BUILD="${3:-$ROOT/build/ogre-ios}"
+RIGDEF_BUILD="${4:-$ROOT/build/ror-native-rigdef-ios}"
 OGRE_SRC="${OGRE_SRC:-$ROOT/build/ogre-src}"
 APP_NAME="RoRIOSProbe"
 APP_DIR="$OUT_DIR/Payload/$APP_NAME.app"
@@ -14,11 +15,13 @@ FIXTURE="$ROOT/platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck"
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CXX="$(xcrun --sdk iphoneos --find clang++)"
 CORE_LIB="$(find "$CORE_BUILD" -name 'libror_vehicle_core.a' -print -quit)"
+RIGDEF_LIB="$(find "$RIGDEF_BUILD" -name 'libror_native_rigdef.a' -print -quit)"
 OGRE_MAIN="$(find "$OGRE_BUILD" -name 'libOgreMainStatic.a' -print -quit)"
 OGRE_METAL="$(find "$OGRE_BUILD" -name 'libRenderSystem_MetalStatic.a' -print -quit)"
 
 for REQUIRED in \
     "$CORE_LIB" \
+    "$RIGDEF_LIB" \
     "$OGRE_MAIN" \
     "$OGRE_METAL" \
     "$FIXTURE" \
@@ -27,7 +30,7 @@ for REQUIRED in \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
     "$OGRE_SRC/Media/Main/GLSL_GL3Support.glsl"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
-        echo "error: required iOS/OGRE input missing: $REQUIRED" >&2
+        echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
         exit 1
     fi
 done
@@ -53,6 +56,7 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     -I"$ROOT/source/main/physics" \
     -I"$ROOT/source/main/resources/rig_def_fileformat" \
     -I"$ROOT/platform/ios/vehicle-core" \
+    -I"$ROOT/platform/ios/ror-native" \
     -I"$ROOT/platform/ios/ogre" \
     -I"$OGRE_SRC/OgreMain/include" \
     -I"$OGRE_BUILD/include" \
@@ -60,8 +64,10 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     -I"$OGRE_SRC/RenderSystems/Metal/include/Windowing/iOS" \
     "$ROOT/platform/ios/app/OgreGameApp.mm" \
     "$ROOT/platform/ios/app/OgreRuntimeDiagnostics.mm" \
+    "$ROOT/platform/ios/ror-native/NativeRigDefLaunchProbe.mm" \
     "$ROOT/platform/ios/ogre/AuthoredVisualGeometry.cpp" \
     "$CORE_LIB" \
+    "$RIGDEF_LIB" \
     "$OGRE_METAL" \
     "$OGRE_MAIN" \
     -framework UIKit \
@@ -82,8 +88,11 @@ test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 test -s "$APP_DIR/OgreMedia/Main/HLSL_SM4Support.hlsl"
 test -s "$APP_DIR/OgreMedia/Main/GLSL_GL3Support.glsl"
 
-# Static linking should leave concrete OGRE/Metal symbols in the final image.
+# Static linking should leave concrete OGRE/Metal and native RoR parser symbols
+# in the final image. The launch probe also executes ParseRigDef() on-device.
 xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' | head -20
+xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | c++filt | grep -q 'RoR::IOSNative::ParseRigDef'
+xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | c++filt | grep -q 'RigDef::Parser::ProcessRawLine'
 
 (
     cd "$OUT_DIR"
@@ -91,4 +100,4 @@ xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" | grep -E 'MetalPlugin|MetalRenderS
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned OGRE 14 / Metal authored-vehicle IPA: $IPA"
+echo "Built unsigned OGRE 14 / Metal + native RoR RigDef iPhone IPA: $IPA"
