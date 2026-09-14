@@ -30,10 +30,12 @@ cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
     -stdlib=libc++ \
     -I"$ROOT/source/main/physics" \
     -I"$ROOT/source/main/resources/rig_def_fileformat" \
+    -I"$ROOT/platform/ios/vehicle-core" \
     "$ROOT/platform/ios/app/main.mm" \
     "$LIB" \
     -framework UIKit \
     -framework Foundation \
+    -framework QuartzCore \
     -o "$APP_DIR/$APP_NAME"
 
 chmod +x "$APP_DIR/$APP_NAME"
