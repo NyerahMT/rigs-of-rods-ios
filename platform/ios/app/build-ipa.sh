@@ -21,9 +21,6 @@ RIGDEF_LIB="$(find "$RIGDEF_BUILD" -name 'libror_native_rigdef.a' -print -quit)"
 OGRE_MAIN="$(find "$OGRE_BUILD" -name 'libOgreMainStatic.a' -print -quit)"
 OGRE_METAL="$(find "$OGRE_BUILD" -name 'libRenderSystem_MetalStatic.a' -print -quit)"
 
-# Pin the same official default-content repository used by desktop RoR.  The
-# iOS IPA now carries the real DAF textures/materials/content rather than only
-# our parser fixture.
 if [[ ! -d "$CONTENT_SRC/.git" ]] || [[ "$(git -C "$CONTENT_SRC" rev-parse HEAD 2>/dev/null || true)" != "$CONTENT_COMMIT" ]]; then
     rm -rf "$CONTENT_SRC"
     git init -q "$CONTENT_SRC"
@@ -55,15 +52,9 @@ rm -rf "$OUT_DIR"
 mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/OgreMedia/Main"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
 cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
-
-# Guard against fixture drift: the runtime content must be the exact pinned
-# upstream truck we developed the native parser bridge against.
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
 
-# OGRE's runtime include resolver walks unified shader includes before Metal's
-# preprocessor eliminates the HLSL/GLSL branches. Keep the complete pinned
-# Media/Main support set together instead of cherry-picking Metal-only files.
 cp -R "$OGRE_SRC/Media/Main/." "$APP_DIR/OgreMedia/Main/"
 cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 
@@ -84,7 +75,6 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     -I"$OGRE_SRC/RenderSystems/Metal/include" \
     -I"$OGRE_SRC/RenderSystems/Metal/include/Windowing/iOS" \
     "$ROOT/platform/ios/app/OgreGameApp.mm" \
-    "$ROOT/platform/ios/app/OgreRuntimeDiagnostics.mm" \
     "$ROOT/platform/ios/ror-native/NativeRigDefLaunchProbe.mm" \
     "$ROOT/platform/ios/ogre/AuthoredVisualGeometry.cpp" \
     "$CORE_LIB" \
@@ -111,9 +101,6 @@ test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 test -s "$APP_DIR/OgreMedia/Main/HLSL_SM4Support.hlsl"
 test -s "$APP_DIR/OgreMedia/Main/GLSL_GL3Support.glsl"
 
-# Static linking should leave concrete OGRE/Metal and native RoR parser symbols
-# in the final image. Capture nm output before filtering so LLVM's nm never gets
-# SIGPIPE from grep/head under `set -o pipefail`.
 NM_RAW="$OUT_DIR/${APP_NAME}.nm.txt"
 NM_DEMANGLED="$OUT_DIR/${APP_NAME}.nm.demangled.txt"
 xcrun --sdk iphoneos nm "$APP_DIR/$APP_NAME" > "$NM_RAW"
