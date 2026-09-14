@@ -33,6 +33,11 @@ if [[ ! -d "$CONTENT_SRC/.git" ]] || [[ "$(git -C "$CONTENT_SRC" rev-parse HEAD 
     git -C "$CONTENT_SRC" checkout -q FETCH_HEAD
 fi
 
+# Inspect the selected faster RoR community vehicle during packaging. This is
+# intentionally a build-time download so third-party vehicle assets are not
+# vendored into this source tree while we establish the exact rig/audio layout.
+bash "$ROOT/platform/ios/app/fetch-foxbody.sh" "$ROOT/build/foxbody-resource"
+
 for REQUIRED in \
     "$CORE_LIB" \
     "$RIGDEF_LIB" \
@@ -196,8 +201,6 @@ c++filt < "$NM_RAW" > "$NM_DEMANGLED"
 grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' "$NM_RAW" | sed -n '1,20p'
 grep -q 'RoR::IOSNative::ParseRigDef' "$NM_DEMANGLED"
 grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
-# Simple2 is Flat=1, so the iOS adapter intentionally avoids Ogre::TerrainGroup's
-# indexed triangle-strip renderer. Verify the adapter itself survived dead stripping.
 grep -q 'RoR::IOSOgre::RoRTerrainScene' "$NM_DEMANGLED"
 
 (
