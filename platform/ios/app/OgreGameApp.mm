@@ -6,6 +6,7 @@
 #include "SimConstants.h"
 
 #include "Ogre.h"
+#include "OgreEntity.h"
 #include "OgreGpuProgramManager.h"
 #include "OgreManualObject.h"
 #include "OgreMaterialManager.h"
@@ -135,9 +136,10 @@ private:
 class OgreRenderer
 {
 public:
-    OgreRenderer(CGSize size, const std::string& media_path, const std::string& content_path)
+    OgreRenderer(CGSize size, const std::string& media_path, const std::string& content_path,
+                 const std::string& prop_mesh_path)
     {
-        Initialise(size, media_path, content_path);
+        Initialise(size, media_path, content_path, prop_mesh_path);
     }
 
     ~OgreRenderer()
@@ -172,12 +174,20 @@ public:
         {
             UpdateBody(s, visual);
             UpdateWheels(s, visual);
+            UpdateProps(s, visual);
             UpdateCamera(s.telemetry);
         }
         root->renderOneFrame();
     }
 
 private:
+    struct PropInstance
+    {
+        std::size_t visual_index = 0;
+        Ogre::SceneNode* node = nullptr;
+        Ogre::Entity* entity = nullptr;
+    };
+
     static void V(Ogre::ManualObject* o, const Ogre::Vector3& p, const Ogre::ColourValue& c)
     {
         o->position(p); o->colour(c);
@@ -201,7 +211,8 @@ private:
         Tri(o, a, b, c, colour); Tri(o, a, c, d, colour);
     }
 
-    void Initialise(CGSize size, const std::string& media_path, const std::string& content_path)
+    void Initialise(CGSize size, const std::string& media_path, const std::string& content_path,
+                    const std::string& prop_mesh_path)
     {
         NSString* log = [NSTemporaryDirectory() stringByAppendingPathComponent:@"RoROgre.log"];
         root = new Ogre::Root("", "", log.UTF8String);
@@ -215,6 +226,7 @@ private:
         auto& groups = Ogre::ResourceGroupManager::getSingleton();
         groups.addResourceLocation(media_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         groups.addResourceLocation(content_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
+        groups.addResourceLocation(prop_mesh_path, "FileSystem", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
 
         const unsigned int w = std::max(2u, static_cast<unsigned int>(size.width));
         const unsigned int h = std::max(2u, static_cast<unsigned int>(size.height));
@@ -366,6 +378,85 @@ private:
         wheels->end(); wheels_built = true;
     }
 
+    void EnsureProps(const RoR::IOSOgre::AuthoredVisualGeometry& visual)
+    {
+        if (props_built || !scene) return;
+        props_built = true;
+        for (std::size_t i = 0; i < visual.props.size(); ++i)
+        {
+            const auto& prop = visual.props[i];
+            try
+            {
+                const std::string suffix = std::to_string(i);
+                Ogre::Entity* entity = scene->createEntity("RoRPropEntity" + suffix, prop.mesh_name);
+                // Keep the exact upstream mesh geometry and authored attachment,
+                // but use our known-good Metal material until each legacy RoR
+                // prop material is ported individually. Missing desktop material
+                // scripts must not be allowed to take the whole renderer down.
+                entity->setMaterialName("RoR/Game");
+                entity->setCastShadows(false);
+                Ogre::SceneNode* node = scene->getRootSceneNode()->createChildSceneNode("RoRPropNode" + suffix);
+                node->attachObject(entity);
+                prop_instances.push_back({i, node, entity});
+            }
+            catch (const Ogre::Exception& e)
+            {
+                Ogre::LogManager::getSingleton().logMessage(
+                    "iOS prop skipped: " + prop.mesh_name + " - " + e.getFullDescription());
+            }
+        }
+    }
+
+    void UpdateProps(const Snapshot& s, const RoR::IOSOgre::AuthoredVisualGeometry& visual)
+    {
+        EnsureProps(visual);
+        for (PropInstance& instance : prop_instances)
+        {
+            if (instance.visual_index >= visual.props.size()) continue;
+            const auto& prop = visual.props[instance.visual_index];
+            if (prop.node_ref >= s.nodes.size() || prop.node_x >= s.nodes.size() || prop.node_y >= s.nodes.size())
+            {
+                instance.entity->setVisible(false);
+                continue;
+            }
+
+            const Ogre::Vector3 ref = OgreVec(s.nodes[prop.node_ref]);
+            const Ogre::Vector3 diff_x = OgreVec(s.nodes[prop.node_x]) - ref;
+            const Ogre::Vector3 diff_y = OgreVec(s.nodes[prop.node_y]) - ref;
+            if (diff_x.squaredLength() < 1.0e-8f || diff_y.squaredLength() < 1.0e-8f)
+            {
+                instance.entity->setVisible(false);
+                continue;
+            }
+
+            Ogre::Vector3 normal = -diff_x.crossProduct(diff_y);
+            if (normal.squaredLength() < 1.0e-8f)
+            {
+                instance.entity->setVisible(false);
+                continue;
+            }
+            normal.normalise();
+
+            // This is the upstream RoR GfxActor::UpdateProps transform. Props
+            // therefore follow the deforming node-and-beam chassis rather than
+            // being rigidly glued to our renderer/camera coordinate system.
+            const Ogre::Vector3 position = ref
+                + prop.offset_x * diff_x
+                + prop.offset_y * diff_y
+                + prop.offset_z * normal;
+            const Ogre::Quaternion orientation =
+                Ogre::Quaternion(Ogre::Degree(180.0f), Ogre::Vector3::UNIT_Y)
+                * diff_x.getRotationTo(diff_y)
+                * Ogre::Quaternion(Ogre::Degree(prop.rot_x_degrees), Ogre::Vector3::UNIT_X)
+                * Ogre::Quaternion(Ogre::Degree(prop.rot_y_degrees), Ogre::Vector3::UNIT_Y)
+                * Ogre::Quaternion(Ogre::Degree(prop.rot_z_degrees), Ogre::Vector3::UNIT_Z);
+
+            instance.node->setPosition(position);
+            instance.node->setOrientation(orientation);
+            instance.entity->setVisible(true);
+        }
+    }
+
     void UpdateCamera(const RoR::IOSVehicleCore::AuthoredVehicleTelemetry& t)
     {
         const Ogre::Vector3 target_center = OgreVec(t.center);
@@ -380,7 +471,8 @@ private:
 
     Ogre::Root* root=nullptr; Ogre::MetalPlugin* metal_plugin=nullptr; Ogre::RenderWindow* window=nullptr; Ogre::SceneManager* scene=nullptr;
     Ogre::Camera* camera=nullptr; Ogre::SceneNode* camera_node=nullptr; Ogre::ManualObject* body=nullptr; Ogre::ManualObject* wheels=nullptr;
-    __strong UIView* view=nil; bool body_built=false, wheels_built=false, camera_started=false; Ogre::Vector3 camera_center=Ogre::Vector3::ZERO; float camera_heading=0;
+    std::vector<PropInstance> prop_instances;
+    __strong UIView* view=nil; bool body_built=false, wheels_built=false, props_built=false, camera_started=false; Ogre::Vector3 camera_center=Ogre::Vector3::ZERO; float camera_heading=0;
 };
 } // namespace
 
@@ -428,8 +520,8 @@ private:
 - (void)ensureRenderer
 {
     if(_renderer||self.view.bounds.size.width<2||self.view.bounds.size.height<2)return;
-    NSString* rootPath=[[NSBundle mainBundle] resourcePath]; NSString* media=[rootPath stringByAppendingPathComponent:@"OgreMedia/Main"]; NSString* content=[rootPath stringByAppendingPathComponent:@"Content/dafsemi"];
-    try{_renderer=new OgreRenderer(self.view.bounds.size,std::string(media.UTF8String),std::string(content.UTF8String));_ogreView=_renderer->View();_ogreView.frame=self.view.bounds;[self.view insertSubview:_ogreView atIndex:0];}
+    NSString* rootPath=[[NSBundle mainBundle] resourcePath]; NSString* media=[rootPath stringByAppendingPathComponent:@"OgreMedia/Main"]; NSString* content=[rootPath stringByAppendingPathComponent:@"Content/dafsemi"]; NSString* propMeshes=[rootPath stringByAppendingPathComponent:@"RoRResources/meshes"];
+    try{_renderer=new OgreRenderer(self.view.bounds.size,std::string(media.UTF8String),std::string(content.UTF8String),std::string(propMeshes.UTF8String));_ogreView=_renderer->View();_ogreView.frame=self.view.bounds;[self.view insertSubview:_ogreView atIndex:0];}
     catch(const Ogre::Exception& e){_status.text=[NSString stringWithFormat:@"OGRE INIT FAILED\
 %s",e.getFullDescription().c_str()];}
     catch(const std::exception& e){_status.text=[NSString stringWithFormat:@"RENDER INIT FAILED\
@@ -441,7 +533,7 @@ private:
     [self ensureRenderer]; if(_lastFrame>0){double dt=link.timestamp-_lastFrame;if(dt>.0001){float now=1.0f/(float)dt;_fps=_fps<1?now:_fps*.90f+now*.10f;}}_lastFrame=link.timestamp;
     Snapshot s=_simulation->GetSnapshot(); if(_renderer)_renderer->Draw(s,_simulation->Visual()); _speed.text=[NSString stringWithFormat:@"%3.0f MPH",s.telemetry.speed_mps*kMetersToMph];
     if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\
-%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • ROR DAF 2-PASS • %.0f FPS\
+%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • ROR DAF + PROPS • %.0f FPS\
 ROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
 }
 

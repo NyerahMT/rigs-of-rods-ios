@@ -1,7 +1,8 @@
 /*
     Visual geometry extraction for the iOS OGRE bring-up.
     This keeps rendering data separate from the portable physics parser while
-    preserving the authored RoR cab triangles, texture coordinates, and wheel definitions.
+    preserving the authored RoR cab triangles, texture coordinates, wheel definitions,
+    and prop attachments.
 */
 
 #pragma once
@@ -39,10 +40,25 @@ struct WheelVisual
     float width = 0.0f;
 };
 
+struct PropVisual
+{
+    std::size_t node_ref = 0;
+    std::size_t node_x = 0;
+    std::size_t node_y = 0;
+    float offset_x = 0.0f;
+    float offset_y = 0.0f;
+    float offset_z = 0.0f;
+    float rot_x_degrees = 0.0f;
+    float rot_y_degrees = 0.0f;
+    float rot_z_degrees = 0.0f;
+    std::string mesh_name;
+};
+
 struct AuthoredVisualGeometry
 {
     std::vector<CabTriangle> cab_triangles;
     std::vector<WheelVisual> wheels;
+    std::vector<PropVisual> props;
     std::vector<std::string> warnings;
 };
 

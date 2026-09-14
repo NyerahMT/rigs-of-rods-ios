@@ -41,6 +41,10 @@ for REQUIRED in \
     "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" \
     "$CONTENT_SRC/dafsemi/b6b0UID-ampliroll_emissive.dds" \
     "$CONTENT_SRC/dafsemi/b6b0UID-semi.material" \
+    "$ROOT/resources/meshes/dashboard.mesh" \
+    "$ROOT/resources/meshes/leftmirror.mesh" \
+    "$ROOT/resources/meshes/rightmirror.mesh" \
+    "$ROOT/resources/meshes/seat.mesh" \
     "$OGRE_SRC/Media/Main/OgreUnifiedShader.h" \
     "$OGRE_SRC/Media/Main/DefaultShaders.metal" \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
@@ -54,11 +58,19 @@ for REQUIRED in \
 done
 
 rm -rf "$OUT_DIR"
-mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/OgreMedia/Main"
+mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
 cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
+
+# These are the stock shared RoR meshes referenced by the DAF's `props`
+# section. Package only the exact resources the vehicle needs for now; pulling
+# in the entire legacy materials tree would make OGRE parse unrelated desktop
+# shader scripts during this Metal bring-up.
+for MESH in dashboard.mesh leftmirror.mesh rightmirror.mesh seat.mesh; do
+    cp "$ROOT/resources/meshes/$MESH" "$APP_DIR/RoRResources/meshes/$MESH"
+done
 
 # The stock DAF diffuse is DXT3 and its emissive map is DXT1. OGRE 14's Metal
 # backend deliberately does not expose BC/DXT texture formats on iOS, so the
@@ -149,6 +161,9 @@ test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi-source.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive-source.dds"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.material"
+for MESH in dashboard.mesh leftmirror.mesh rightmirror.mesh seat.mesh; do
+    test -s "$APP_DIR/RoRResources/meshes/$MESH"
+done
 test -s "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 test -s "$APP_DIR/OgreMedia/Main/HLSL_SM4Support.hlsl"

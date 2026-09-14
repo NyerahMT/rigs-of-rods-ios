@@ -46,6 +46,32 @@ std::vector<std::string> Tokens(const std::string& input)
     return out;
 }
 
+bool IsTopLevelSection(const std::string& lower)
+{
+    static const char* sections[] = {
+        "animators", "axles", "beams", "brakes", "cab", "cinecam", "commands", "commands2",
+        "contacters", "engine", "engoption", "exhausts", "flares", "flares2", "flexbodies",
+        "fusedrag", "globals", "guisettings", "help", "hooks", "hydros", "lockgroups", "managedmaterials",
+        "meshwheels", "meshwheels2", "nodes", "nodes2", "particles", "props", "railgroups", "rigidifiers",
+        "ropables", "ropes", "rotators", "rotators2", "screwprops", "shocks", "shocks2", "slidenodes",
+        "soundsources", "soundsources2", "submesh", "ties", "torquecurve", "triggers", "turboprops2",
+        "videocamera", "wheels", "wheels2", "wings"
+    };
+    for (const char* section : sections) if (lower == section) return true;
+    return false;
+}
+
+bool ParseFloat(const std::string& text, float& value)
+{
+    try
+    {
+        std::size_t used = 0;
+        value = std::stof(text, &used);
+        return used == text.size();
+    }
+    catch (...) { return false; }
+}
+
 } // namespace
 
 AuthoredVisualGeometry ParseAuthoredVisualGeometry(const std::string& truck_text)
@@ -96,15 +122,7 @@ AuthoredVisualGeometry ParseAuthoredVisualGeometry(const std::string& truck_text
         if (lower == "texcoords") { mode = SubmeshMode::Texcoords; continue; }
         if (lower == "cab") { mode = SubmeshMode::Cab; continue; }
         if (lower == "backmesh") { mode = SubmeshMode::None; continue; }
-
-        static const char* top_level[] = {
-            "props", "cinecam", "wheels", "wheels2", "meshwheels", "meshwheels2",
-            "flares", "hydros", "shocks", "shocks2", "beams", "nodes", "nodes2",
-            "engine", "brakes", "contacters", "hooks", "ropes", "ropables", "help"
-        };
-        bool starts_new_block = false;
-        for (const char* keyword : top_level) if (lower == keyword) { starts_new_block = true; break; }
-        if (starts_new_block)
+        if (IsTopLevelSection(lower))
         {
             in_submesh = false;
             mode = SubmeshMode::None;
@@ -149,6 +167,47 @@ AuthoredVisualGeometry ParseAuthoredVisualGeometry(const std::string& truck_text
         }
         triangle.contact = tokens.size() > 3 && tokens[3].find('c') != std::string::npos;
         out.cab_triangles.push_back(triangle);
+    }
+
+    // Props are rigid OGRE meshes anchored to three deforming rig nodes. Parse
+    // their authored attachment frame separately so the renderer can apply the
+    // same live transform used by upstream GfxActor::UpdateProps().
+    bool in_props = false;
+    std::istringstream prop_input(truck_text);
+    while (std::getline(prop_input, raw))
+    {
+        const std::string line = StripComments(raw);
+        if (line.empty()) continue;
+        const std::string lower = Lower(line);
+        if (lower == "end") break;
+        if (lower == "props") { in_props = true; continue; }
+        if (!in_props) continue;
+        if (IsTopLevelSection(lower)) { in_props = false; continue; }
+
+        const std::vector<std::string> tokens = Tokens(line);
+        if (tokens.size() < 10) continue;
+        const auto ref = node_index.find(tokens[0]);
+        const auto x = node_index.find(tokens[1]);
+        const auto y = node_index.find(tokens[2]);
+        if (ref == node_index.end() || x == node_index.end() || y == node_index.end())
+        {
+            out.warnings.push_back("prop references an unknown authored node");
+            continue;
+        }
+
+        PropVisual prop;
+        prop.node_ref = ref->second;
+        prop.node_x = x->second;
+        prop.node_y = y->second;
+        if (!ParseFloat(tokens[3], prop.offset_x) || !ParseFloat(tokens[4], prop.offset_y) ||
+            !ParseFloat(tokens[5], prop.offset_z) || !ParseFloat(tokens[6], prop.rot_x_degrees) ||
+            !ParseFloat(tokens[7], prop.rot_y_degrees) || !ParseFloat(tokens[8], prop.rot_z_degrees))
+        {
+            out.warnings.push_back("invalid authored prop transform");
+            continue;
+        }
+        prop.mesh_name = tokens[9];
+        out.props.push_back(std::move(prop));
     }
 
     if (out.cab_triangles.empty()) out.warnings.push_back("authored vehicle contains no portable cab triangles");
