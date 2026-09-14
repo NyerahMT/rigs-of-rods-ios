@@ -68,7 +68,7 @@ fragment half4 ror_vehicle_fp(TexturedRasterizerData in [[stage_in]],
     // programmable fragment stage owns this test, so reproduce the RoR/OGRE
     // material rule here instead of drawing transparent atlas pixels as black.
     if (texel.a <= ROR_ALPHA_REJECT)
-        discard_fragment();
+        metal::discard_fragment();
 
     return texel * half4(in.colour);
 }
