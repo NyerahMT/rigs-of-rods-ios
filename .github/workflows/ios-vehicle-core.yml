@@ -12,8 +12,9 @@ on:
       - 'source/main/physics/SimConstants.h'
       - 'source/main/physics/collision/GroundContact.*'
       - 'source/main/physics/collision/GroundFriction.*'
-      - 'source/main/resources/rig_def_fileformat/PortableRigDef.*'
+      - 'source/main/resources/rig_def_fileformat/**'
       - 'platform/ios/vehicle-core/**'
+      - 'platform/ios/ror-native/**'
       - 'platform/ios/ogre/**'
       - 'platform/ios/app/**'
       - '.github/workflows/ios-vehicle-core.yml'
@@ -27,8 +28,9 @@ on:
       - 'source/main/physics/SimConstants.h'
       - 'source/main/physics/collision/GroundContact.*'
       - 'source/main/physics/collision/GroundFriction.*'
-      - 'source/main/resources/rig_def_fileformat/PortableRigDef.*'
+      - 'source/main/resources/rig_def_fileformat/**'
       - 'platform/ios/vehicle-core/**'
+      - 'platform/ios/ror-native/**'
       - 'platform/ios/ogre/**'
       - 'platform/ios/app/**'
       - '.github/workflows/ios-vehicle-core.yml'
@@ -116,6 +118,20 @@ jobs:
           xcrun --sdk iphoneos nm -gU "$OGRE_METAL" | grep -E 'MetalPlugin|MetalRenderSystem' | head -20
           test "$(cat build/ogre-ios/OGRE_PINNED_COMMIT.txt)" = '5cccbeec824798629931cfd9184bde729610e30d'
 
+      - name: Cross-compile upstream RoR RigDef for iPhone
+        run: |
+          bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
+
+      - name: Verify native RoR parser artifact
+        run: |
+          LIB=build/ror-native-rigdef-ios/libror_native_rigdef.a
+          test -s "$LIB"
+          lipo -info "$LIB" | grep -q arm64
+          test "$(cat build/ror-native-rigdef-ios/FMT_PINNED_COMMIT.txt)" = '1be298e1bd68957e4cd352e1f676f00e07dcfb57'
+          xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RigDef::Parser::ProcessRawLine'
+          xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RigDef::SequentialImporter::Process'
+          xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RoR::IOSNative::ParseRigDef'
+
       - name: Build unsigned OGRE game-view iPhone IPA
         run: |
           platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
@@ -152,4 +168,11 @@ jobs:
         with:
           name: ror-vehicle-core-ios-arm64
           path: build/vehicle-core-ios/**/libror_vehicle_core.a
+          if-no-files-found: error
+
+      - name: Upload native RoR RigDef library
+        uses: actions/upload-artifact@v4
+        with:
+          name: ror-native-rigdef-ios-arm64
+          path: build/ror-native-rigdef-ios/libror_native_rigdef.a
           if-no-files-found: error
