@@ -6,6 +6,11 @@ struct RasterizerData
     vec4 colour;
 };
 
+struct PropRasterizerData
+{
+    vec4 pos [[position]];
+};
+
 struct TexturedRasterizerData
 {
     vec4 pos [[position]];
@@ -17,6 +22,14 @@ struct Vertex
 {
     IN(vec3 pos, POSITION);
     IN(vec4 colour, COLOR0);
+};
+
+// Stock RoR .mesh props do not necessarily carry a vertex-colour stream.
+// Keep the bring-up shader intentionally position-only so OGRE's Metal PSO
+// never requires COLOR0 from dashboard/mirror/seat meshes.
+struct PropVertex
+{
+    IN(vec3 pos, POSITION);
 };
 
 struct TexturedVertex
@@ -46,6 +59,20 @@ vertex RasterizerData ror_game_vp(Vertex in [[stage_in]],
 fragment half4 ror_game_fp(RasterizerData in [[stage_in]])
 {
     return half4(in.colour);
+}
+
+vertex PropRasterizerData ror_prop_vp(PropVertex in [[stage_in]],
+                                      constant Uniform& u [[buffer(UNIFORM_INDEX_START)]])
+{
+    PropRasterizerData out;
+    out.pos = u.mvpMtx * vec4(in.pos, 1.0);
+    return out;
+}
+
+fragment half4 ror_prop_fp(PropRasterizerData in [[stage_in]])
+{
+    (void)in;
+    return half4(0.32h, 0.34h, 0.36h, 1.0h);
 }
 
 vertex TexturedRasterizerData ror_vehicle_vp(TexturedVertex in [[stage_in]],
