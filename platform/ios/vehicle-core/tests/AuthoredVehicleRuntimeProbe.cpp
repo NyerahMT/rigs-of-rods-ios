@@ -96,7 +96,13 @@ int main()
     Require(truck.IsFinite(), "real authored vehicle remains finite under powered rear axle");
 
     const AuthoredVehicleTelemetry powered = truck.Telemetry();
-    Require(HorizontalDistance(powered.center, settled.center) > 0.20f,
+    const float powered_travel = HorizontalDistance(powered.center, settled.center);
+    std::cerr << "authored launch diagnostics: travel=" << powered_travel
+              << " m, body=" << powered.speed_mps
+              << " m/s, forward=" << powered.forward_speed_mps
+              << " m/s, driven tread=" << powered.driven_wheel_speed_mps
+              << " m/s\n";
+    Require(powered_travel > 0.20f,
             "authored powered wheels propel the complete truck");
     Require(powered.driven_wheel_speed_mps > 0.50f,
             "authored rear wheels rotate under engine torque");
@@ -129,7 +135,7 @@ int main()
 
     std::cout << "RoR authored DAF runtime passed: "
               << truck.NodeCount() << " nodes, " << truck.BeamPairs().size() << " beams, "
-              << HorizontalDistance(powered.center, settled.center) << " m powered travel, "
+              << powered_travel << " m powered travel, "
               << heading_delta * 180.0f / 3.14159265f << " deg yaw, rear tread "
               << tread_before_brake << " -> " << stopped.driven_wheel_speed_mps << " m/s.\n";
     return EXIT_SUCCESS;
