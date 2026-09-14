@@ -162,10 +162,18 @@ public:
 
     void Draw(const Snapshot& s, const RoR::IOSOgre::AuthoredVisualGeometry& visual)
     {
-        if (!root || !s.ready || !s.finite || s.nodes.empty()) return;
-        UpdateBody(s, visual);
-        UpdateWheels(s, visual);
-        UpdateCamera(s.telemetry);
+        if (!root) return;
+
+        // Keep presenting the OGRE viewport even if a future vehicle/content
+        // regression makes the physics snapshot temporarily unavailable. A
+        // vehicle failure should never masquerade as another black-screen
+        // renderer failure.
+        if (s.ready && s.finite && !s.nodes.empty())
+        {
+            UpdateBody(s, visual);
+            UpdateWheels(s, visual);
+            UpdateCamera(s.telemetry);
+        }
         root->renderOneFrame();
     }
 
@@ -255,7 +263,9 @@ private:
         tvp->setSourceFile("RoRGame.metal"); tvp->setParameter("entry_point", "ror_vehicle_vp");
         Ogre::GpuProgramPtr tfp = programs.createProgram("RoRVehicleFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
         tfp->setSourceFile("RoRGame.metal"); tfp->setParameter("entry_point", "ror_vehicle_fp"); tfp->setParameter("shader_reflection_pair_hint", "RoRVehicleVP");
-        tvp->load(); tfp->load();
+        Ogre::GpuProgramPtr efp = programs.createProgram("RoRVehicleEmissiveFP", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME, "metal", Ogre::GPT_FRAGMENT_PROGRAM);
+        efp->setSourceFile("RoRGame.metal"); efp->setParameter("entry_point", "ror_vehicle_emissive_fp"); efp->setParameter("shader_reflection_pair_hint", "RoRVehicleVP");
+        tvp->load(); tfp->load(); efp->load();
 
         Ogre::MaterialPtr flat = Ogre::MaterialManager::getSingleton().create("RoR/Game", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         flat->removeAllTechniques();
@@ -265,15 +275,31 @@ private:
         pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
         flat->load();
 
+        // Reproduce the stock b6b0UID-tracks/semi material instead of using a
+        // one-pass approximation. The original RoR material uses transparent
+        // alpha blending + alpha rejection, then an additive emissive pass.
         Ogre::MaterialPtr truck = Ogre::MaterialManager::getSingleton().create("RoR/DAFOfficial", Ogre::ResourceGroupManager::DEFAULT_RESOURCE_GROUP_NAME);
         truck->removeAllTechniques();
-        Ogre::Pass* truck_pass = truck->createTechnique()->createPass();
+        Ogre::Technique* truck_technique = truck->createTechnique();
+
+        Ogre::Pass* truck_pass = truck_technique->createPass();
         truck_pass->setLightingEnabled(false); truck_pass->setCullingMode(Ogre::CULL_NONE); truck_pass->setDepthCheckEnabled(true); truck_pass->setDepthWriteEnabled(true);
+        truck_pass->setSceneBlending(Ogre::SBT_TRANSPARENT_ALPHA);
+        truck_pass->setAlphaRejectSettings(Ogre::CMPF_GREATER, 128);
         truck_pass->setVertexProgram("RoRVehicleVP"); truck_pass->setFragmentProgram("RoRVehicleFP");
         truck_pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
         Ogre::TextureUnitState* texture = truck_pass->createTextureUnitState("b6b0UID-semi.dds");
         texture->setTextureFiltering(Ogre::TFO_ANISOTROPIC);
         texture->setTextureAnisotropy(8);
+
+        Ogre::Pass* emissive_pass = truck_technique->createPass();
+        emissive_pass->setLightingEnabled(false); emissive_pass->setCullingMode(Ogre::CULL_NONE); emissive_pass->setDepthCheckEnabled(true); emissive_pass->setDepthWriteEnabled(false);
+        emissive_pass->setSceneBlending(Ogre::SBT_ADD);
+        emissive_pass->setVertexProgram("RoRVehicleVP"); emissive_pass->setFragmentProgram("RoRVehicleEmissiveFP");
+        emissive_pass->getVertexProgramParameters()->setNamedAutoConstant("mvpMtx", Ogre::GpuProgramParameters::ACT_WORLDVIEWPROJ_MATRIX);
+        Ogre::TextureUnitState* emissive = emissive_pass->createTextureUnitState("b6b0UID-ampliroll_emissive.dds");
+        emissive->setTextureFiltering(Ogre::TFO_ANISOTROPIC);
+        emissive->setTextureAnisotropy(8);
         truck->load();
     }
 
@@ -404,15 +430,19 @@ private:
     if(_renderer||self.view.bounds.size.width<2||self.view.bounds.size.height<2)return;
     NSString* rootPath=[[NSBundle mainBundle] resourcePath]; NSString* media=[rootPath stringByAppendingPathComponent:@"OgreMedia/Main"]; NSString* content=[rootPath stringByAppendingPathComponent:@"Content/dafsemi"];
     try{_renderer=new OgreRenderer(self.view.bounds.size,std::string(media.UTF8String),std::string(content.UTF8String));_ogreView=_renderer->View();_ogreView.frame=self.view.bounds;[self.view insertSubview:_ogreView atIndex:0];}
-    catch(const Ogre::Exception& e){_status.text=[NSString stringWithFormat:@"OGRE INIT FAILED\n%s",e.getFullDescription().c_str()];}
-    catch(const std::exception& e){_status.text=[NSString stringWithFormat:@"RENDER INIT FAILED\n%s",e.what()];}
+    catch(const Ogre::Exception& e){_status.text=[NSString stringWithFormat:@"OGRE INIT FAILED\
+%s",e.getFullDescription().c_str()];}
+    catch(const std::exception& e){_status.text=[NSString stringWithFormat:@"RENDER INIT FAILED\
+%s",e.what()];}
 }
 
 - (void)frame:(CADisplayLink*)link
 {
     [self ensureRenderer]; if(_lastFrame>0){double dt=link.timestamp-_lastFrame;if(dt>.0001){float now=1.0f/(float)dt;_fps=_fps<1?now:_fps*.90f+now*.10f;}}_lastFrame=link.timestamp;
-    Snapshot s=_simulation->GetSnapshot(); if(_renderer&&s.ready&&s.finite)_renderer->Draw(s,_simulation->Visual()); _speed.text=[NSString stringWithFormat:@"%3.0f MPH",s.telemetry.speed_mps*kMetersToMph];
-    if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\n%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • OFFICIAL ROR DAF • %.0f FPS\nROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
+    Snapshot s=_simulation->GetSnapshot(); if(_renderer)_renderer->Draw(s,_simulation->Visual()); _speed.text=[NSString stringWithFormat:@"%3.0f MPH",s.telemetry.speed_mps*kMetersToMph];
+    if(!s.ready)_status.text=[NSString stringWithFormat:@"VEHICLE LOAD FAILED\
+%s",s.error.c_str()]; else if(!s.finite)_status.text=@"PHYSICS STOPPED • TAP RESET"; else _status.text=[NSString stringWithFormat:@"OGRE 14.6 • ROR DAF 2-PASS • %.0f FPS\
+ROR PHYSICS 2,000 HZ • %llu STEPS",_fps,s.telemetry.physics_steps];
 }
 
 - (void)push{_simulation->SetControls((_right?1.f:0.f)-(_left?1.f:0.f),_gas?1.f:0.f,_brake?1.f:0.f,_handbrake);}
