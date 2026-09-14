@@ -32,6 +32,7 @@ struct Uniform
 };
 
 #define UNIFORM_INDEX_START 16
+#define ROR_ALPHA_REJECT (128.0h / 255.0h)
 
 vertex RasterizerData ror_game_vp(Vertex in [[stage_in]],
                                   constant Uniform& u [[buffer(UNIFORM_INDEX_START)]])
@@ -62,5 +63,21 @@ fragment half4 ror_vehicle_fp(TexturedRasterizerData in [[stage_in]],
                               metal::sampler diffuse_sampler [[sampler(0)]])
 {
     const half4 texel = diffuse_map.sample(diffuse_sampler, in.uv);
+
+    // The stock DAF material uses `alpha_rejection greater 128`. On Metal the
+    // programmable fragment stage owns this test, so reproduce the RoR/OGRE
+    // material rule here instead of drawing transparent atlas pixels as black.
+    if (texel.a <= ROR_ALPHA_REJECT)
+        discard_fragment();
+
     return texel * half4(in.colour);
+}
+
+fragment half4 ror_vehicle_emissive_fp(TexturedRasterizerData in [[stage_in]],
+                                       metal::texture2d<half> emissive_map [[texture(0)]],
+                                       metal::sampler emissive_sampler [[sampler(0)]])
+{
+    // Kept separate from the lit diffuse shader so OGRE can reproduce the
+    // stock material's additive, depth-write-off emissive pass exactly.
+    return emissive_map.sample(emissive_sampler, in.uv);
 }
