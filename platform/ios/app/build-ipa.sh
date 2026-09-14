@@ -7,6 +7,8 @@ OUT_DIR="${2:-$ROOT/build/ios-app}"
 OGRE_BUILD="${3:-$ROOT/build/ogre-ios}"
 RIGDEF_BUILD="${4:-$ROOT/build/ror-native-rigdef-ios}"
 OGRE_SRC="${OGRE_SRC:-$ROOT/build/ogre-src}"
+CONTENT_SRC="${ROR_CONTENT_SRC:-$ROOT/build/ror-content}"
+CONTENT_COMMIT="34fefdd126784bf87b068fc283f812525d159dd7"
 APP_NAME="RoRIOSProbe"
 APP_DIR="$OUT_DIR/Payload/$APP_NAME.app"
 IPA="$OUT_DIR/$APP_NAME.ipa"
@@ -19,12 +21,26 @@ RIGDEF_LIB="$(find "$RIGDEF_BUILD" -name 'libror_native_rigdef.a' -print -quit)"
 OGRE_MAIN="$(find "$OGRE_BUILD" -name 'libOgreMainStatic.a' -print -quit)"
 OGRE_METAL="$(find "$OGRE_BUILD" -name 'libRenderSystem_MetalStatic.a' -print -quit)"
 
+# Pin the same official default-content repository used by desktop RoR.  The
+# iOS IPA now carries the real DAF textures/materials/content rather than only
+# our parser fixture.
+if [[ ! -d "$CONTENT_SRC/.git" ]] || [[ "$(git -C "$CONTENT_SRC" rev-parse HEAD 2>/dev/null || true)" != "$CONTENT_COMMIT" ]]; then
+    rm -rf "$CONTENT_SRC"
+    git init -q "$CONTENT_SRC"
+    git -C "$CONTENT_SRC" remote add origin https://github.com/RigsOfRods/content.git
+    git -C "$CONTENT_SRC" fetch --depth 1 origin "$CONTENT_COMMIT"
+    git -C "$CONTENT_SRC" checkout -q FETCH_HEAD
+fi
+
 for REQUIRED in \
     "$CORE_LIB" \
     "$RIGDEF_LIB" \
     "$OGRE_MAIN" \
     "$OGRE_METAL" \
     "$FIXTURE" \
+    "$CONTENT_SRC/dafsemi/b6b0UID-semi.truck" \
+    "$CONTENT_SRC/dafsemi/b6b0UID-semi.dds" \
+    "$CONTENT_SRC/dafsemi/b6b0UID-semi.material" \
     "$OGRE_SRC/Media/Main/OgreUnifiedShader.h" \
     "$OGRE_SRC/Media/Main/DefaultShaders.metal" \
     "$OGRE_SRC/Media/Main/HLSL_SM4Support.hlsl" \
@@ -38,7 +54,12 @@ done
 rm -rf "$OUT_DIR"
 mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/OgreMedia/Main"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
-cp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
+cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
+
+# Guard against fixture drift: the runtime content must be the exact pinned
+# upstream truck we developed the native parser bridge against.
+cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
+echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
 
 # OGRE's runtime include resolver walks unified shader includes before Metal's
 # preprocessor eliminates the HLSL/GLSL branches. Keep the complete pinned
@@ -83,6 +104,8 @@ plutil -lint "$APP_DIR/Info.plist"
 file "$APP_DIR/$APP_NAME"
 lipo -info "$APP_DIR/$APP_NAME"
 test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds"
+test -s "$APP_DIR/Content/dafsemi/b6b0UID-semi.material"
 test -s "$APP_DIR/OgreMedia/Main/RoRGame.metal"
 test -s "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 test -s "$APP_DIR/OgreMedia/Main/HLSL_SM4Support.hlsl"
@@ -105,4 +128,4 @@ grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned OGRE 14 / Metal + native RoR RigDef iPhone IPA: $IPA"
+echo "Built unsigned OGRE 14 / Metal + native RoR RigDef + official DAF content iPhone IPA: $IPA"
