@@ -1,0 +1,104 @@
+#import <Foundation/Foundation.h>
+#import <Metal/Metal.h>
+
+static NSString* ReadUTF8(NSString* path)
+{
+    NSError* error = nil;
+    NSString* text = [NSString stringWithContentsOfFile:path
+                                               encoding:NSUTF8StringEncoding
+                                                  error:&error];
+    if (!text)
+    {
+        fprintf(stderr, "failed to read %s: %s\n",
+                path.UTF8String,
+                error.localizedDescription.UTF8String);
+        exit(2);
+    }
+    return text;
+}
+
+static NSString* ResolveUnifiedInclude(NSString* shader, NSString* header)
+{
+    NSString* needle = @"#include \"OgreUnifiedShader.h\"";
+    NSRange range = [shader rangeOfString:needle];
+    if (range.location == NSNotFound)
+    {
+        fprintf(stderr, "RoRGame.metal no longer includes OgreUnifiedShader.h\n");
+        exit(2);
+    }
+
+    // Ogre::HighLevelGpuProgram::_resolveIncludes() replaces resource includes
+    // before Metal sees the source. Do the same here instead of asking the
+    // command-line Metal compiler to interpret an OGRE runtime shader directly.
+    NSString* replacement = [NSString stringWithFormat:
+        @"#line 1 \"OgreUnifiedShader.h\"\n%@\n#line 2 \"RoRGame.metal\"", header];
+    return [shader stringByReplacingCharactersInRange:range withString:replacement];
+}
+
+static void RequireFunction(id<MTLLibrary> library, NSString* name)
+{
+    if (![library newFunctionWithName:name])
+    {
+        fprintf(stderr, "Metal shader compiled but entry point is missing: %s\n", name.UTF8String);
+        exit(3);
+    }
+}
+
+static void CompileStage(id<MTLDevice> device,
+                         NSString* source,
+                         NSString* stageMacro,
+                         NSArray<NSString*>* requiredFunctions)
+{
+    MTLCompileOptions* options = [[MTLCompileOptions alloc] init];
+    options.preprocessorMacros = @{
+        @"OGRE_METAL": @0,
+        @"OGRE_NATIVE_GLSL_VERSION_DIRECTIVE": @"",
+        stageMacro: @1
+    };
+
+    NSError* error = nil;
+    id<MTLLibrary> library = [device newLibraryWithSource:source
+                                                  options:options
+                                                    error:&error];
+    if (!library)
+    {
+        fprintf(stderr, "Metal runtime compilation failed for %s:\n%s\n",
+                stageMacro.UTF8String,
+                error.localizedDescription.UTF8String);
+        exit(4);
+    }
+
+    for (NSString* name in requiredFunctions)
+        RequireFunction(library, name);
+}
+
+int main(int argc, char** argv)
+{
+    @autoreleasepool
+    {
+        if (argc != 3)
+        {
+            fprintf(stderr, "usage: MetalShaderProbe <RoRGame.metal> <OgreUnifiedShader.h>\n");
+            return 2;
+        }
+
+        id<MTLDevice> device = MTLCreateSystemDefaultDevice();
+        if (!device)
+        {
+            fprintf(stderr, "no Metal device available for runtime shader probe\n");
+            return 2;
+        }
+
+        NSString* shaderPath = [NSString stringWithUTF8String:argv[1]];
+        NSString* headerPath = [NSString stringWithUTF8String:argv[2]];
+        NSString* source = ResolveUnifiedInclude(ReadUTF8(shaderPath), ReadUTF8(headerPath));
+
+        CompileStage(device, source, @"OGRE_VERTEX_SHADER",
+                     @[@"ror_game_vp", @"ror_vehicle_vp"]);
+        CompileStage(device, source, @"OGRE_FRAGMENT_SHADER",
+                     @[@"ror_game_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
+
+        printf("OGRE-style Metal runtime shader probe passed (vertex + fragment entry points).\n");
+        return 0;
+    }
+}
