@@ -33,10 +33,15 @@ if [[ ! -d "$CONTENT_SRC/.git" ]] || [[ "$(git -C "$CONTENT_SRC" rev-parse HEAD 
     git -C "$CONTENT_SRC" checkout -q FETCH_HEAD
 fi
 
-# Inspect the selected faster RoR community vehicle during packaging. This is
-# intentionally a build-time download so third-party vehicle assets are not
-# vendored into this source tree while we establish the exact rig/audio layout.
+# Community Repository resource 712 provides the faster Foxbody target and its
+# authored 351 Windsor soundscript/recordings. Fetch it at build time rather
+# than vendoring third-party vehicle content into the source tree.
 bash "$ROOT/platform/ios/app/fetch-foxbody.sh" "$ROOT/build/foxbody-resource"
+FOXBODY_ROOT="$(find "$ROOT/build/foxbody-resource/extracted" -type f -name '351Wmustang.soundscript' -print -quit | xargs dirname)"
+if [[ -z "$FOXBODY_ROOT" || ! -d "$FOXBODY_ROOT" ]]; then
+    echo "error: Foxbody resource did not contain 351Wmustang.soundscript" >&2
+    exit 1
+fi
 
 for REQUIRED in \
     "$CORE_LIB" \
@@ -55,6 +60,11 @@ for REQUIRED in \
     "$CONTENT_SRC/simple2-terrain/simple2-page-0-0.otc" \
     "$CONTENT_SRC/simple2-terrain/simple2-gravel_diffusespecular.dds" \
     "$CONTENT_SRC/simple2-terrain/simple2-gravel_normalheight.dds" \
+    "$FOXBODY_ROOT/351Wmustang.soundscript" \
+    "$FOXBODY_ROOT/351Wlowidle.wav" \
+    "$FOXBODY_ROOT/351Whighidle.wav" \
+    "$FOXBODY_ROOT/351Whighrev.wav" \
+    "$FOXBODY_ROOT/351Wstarter2.wav" \
     "$ROOT/resources/meshes/dashboard.mesh" \
     "$ROOT/resources/meshes/leftmirror.mesh" \
     "$ROOT/resources/meshes/rightmirror.mesh" \
@@ -66,7 +76,10 @@ for REQUIRED in \
     "$ROOT/platform/ios/ogre/MetalShaderProbe.mm" \
     "$ROOT/platform/ios/ogre/RoRTerrainAdapter.cpp" \
     "$ROOT/platform/ios/ogre/RoRTerrainAdapter.h" \
-    "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py"; do
+    "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
+    "$ROOT/platform/ios/app/RoREngineAudio.h" \
+    "$ROOT/platform/ios/app/RoREngineAudio.mm" \
+    "$ROOT/platform/ios/app/prepare_audio_game_source.py"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
         exit 1
@@ -74,12 +87,21 @@ for REQUIRED in \
 done
 
 rm -rf "$OUT_DIR"
-mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/Content/simple2-terrain" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
+mkdir -p "$APP_DIR/Content/dafsemi" "$APP_DIR/Content/simple2-terrain" "$APP_DIR/Content/foxbody-audio" "$APP_DIR/OgreMedia/Main" "$APP_DIR/RoRResources/meshes"
 cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
 cp -R "$CONTENT_SRC/dafsemi/." "$APP_DIR/Content/dafsemi/"
 cp -R "$CONTENT_SRC/simple2-terrain/." "$APP_DIR/Content/simple2-terrain/"
 cmp "$FIXTURE" "$APP_DIR/Content/dafsemi/b6b0UID-semi.truck"
 echo "$CONTENT_COMMIT" > "$APP_DIR/Content/DEFAULT_CONTENT_COMMIT.txt"
+
+# Preserve the actual RoR soundscript and recordings. The AVFoundation bridge
+# parses these same RPM anchors at runtime; no synthesized placeholder tone.
+cp "$FOXBODY_ROOT/351Wmustang.soundscript" "$APP_DIR/Content/foxbody-audio/"
+for AUDIO in 351Wlowidle.wav 351Whighidle.wav 351Wmedrev.wav 351Whighrev.wav 351Wstarter2.wav; do
+    if [[ -f "$FOXBODY_ROOT/$AUDIO" ]]; then
+        cp "$FOXBODY_ROOT/$AUDIO" "$APP_DIR/Content/foxbody-audio/$AUDIO"
+    fi
+done
 
 for MESH in dashboard.mesh leftmirror.mesh rightmirror.mesh seat.mesh; do
     cp "$ROOT/resources/meshes/$MESH" "$APP_DIR/RoRResources/meshes/$MESH"
@@ -103,7 +125,6 @@ for TERRAIN_TEX in simple2-gravel_diffusespecular.dds simple2-gravel_normalheigh
         "$APP_DIR/Content/simple2-terrain/$TERRAIN_TEX"
 done
 
-# Fail packaging if the textures that hit Metal are still FourCC-compressed.
 python3 - \
     "$APP_DIR/Content/dafsemi/b6b0UID-semi.dds" \
     "$APP_DIR/Content/dafsemi/b6b0UID-ampliroll_emissive.dds" \
@@ -134,6 +155,12 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     "$APP_DIR/OgreMedia/Main/RoRGame.metal" \
     "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 
+# Generate the controller source with the audio bridge explicitly connected to
+# vehicle telemetry. The transform is strict and fails if its anchors drift.
+AUDIO_GAME_SRC="$OUT_DIR/OgreGameApp.audio.mm"
+python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \
+    "$ROOT/platform/ios/app/OgreGameApp.mm" "$AUDIO_GAME_SRC"
+
 "$CXX" \
     -arch arm64 \
     -isysroot "$SDK" \
@@ -146,13 +173,15 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     -I"$ROOT/platform/ios/vehicle-core" \
     -I"$ROOT/platform/ios/ror-native" \
     -I"$ROOT/platform/ios/ogre" \
+    -I"$ROOT/platform/ios/app" \
     -I"$OGRE_SRC/OgreMain/include" \
     -I"$OGRE_BUILD/include" \
     -I"$OGRE_SRC/RenderSystems/Metal/include" \
     -I"$OGRE_SRC/RenderSystems/Metal/include/Windowing/iOS" \
     -I"$OGRE_SRC/Components/Terrain/include" \
     -I"$OGRE_SRC/Components/RTShaderSystem/include" \
-    "$ROOT/platform/ios/app/OgreGameApp.mm" \
+    "$AUDIO_GAME_SRC" \
+    "$ROOT/platform/ios/app/RoREngineAudio.mm" \
     "$ROOT/platform/ios/ror-native/NativeRigDefLaunchProbe.mm" \
     "$ROOT/platform/ios/ogre/AuthoredVisualGeometry.cpp" \
     "$ROOT/platform/ios/ogre/RoRTerrainAdapter.cpp" \
@@ -164,6 +193,7 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     "$OGRE_MAIN" \
     -framework UIKit \
     -framework Foundation \
+    -framework AVFoundation \
     -framework QuartzCore \
     -framework CoreGraphics \
     -framework Metal \
@@ -186,6 +216,11 @@ test -s "$APP_DIR/Content/simple2-terrain/simple2.otc"
 test -s "$APP_DIR/Content/simple2-terrain/simple2-page-0-0.otc"
 test -s "$APP_DIR/Content/simple2-terrain/simple2-gravel_diffusespecular.dds"
 test -s "$APP_DIR/Content/simple2-terrain/simple2-gravel_normalheight.dds"
+test -s "$APP_DIR/Content/foxbody-audio/351Wmustang.soundscript"
+test -s "$APP_DIR/Content/foxbody-audio/351Wlowidle.wav"
+test -s "$APP_DIR/Content/foxbody-audio/351Whighidle.wav"
+test -s "$APP_DIR/Content/foxbody-audio/351Whighrev.wav"
+test -s "$APP_DIR/Content/foxbody-audio/351Wstarter2.wav"
 for MESH in dashboard.mesh leftmirror.mesh rightmirror.mesh seat.mesh; do
     test -s "$APP_DIR/RoRResources/meshes/$MESH"
 done
@@ -202,6 +237,7 @@ grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' "$NM_RAW" | sed -n '1,20p'
 grep -q 'RoR::IOSNative::ParseRigDef' "$NM_DEMANGLED"
 grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
 grep -q 'RoR::IOSOgre::RoRTerrainScene' "$NM_DEMANGLED"
+grep -q 'RoR::IOSAudio::EngineAudio' "$NM_DEMANGLED"
 
 (
     cd "$OUT_DIR"
@@ -209,4 +245,4 @@ grep -q 'RoR::IOSOgre::RoRTerrainScene' "$NM_DEMANGLED"
 )
 
 [[ -f "$IPA" ]]
-echo "Built unsigned OGRE 14 / Metal + native RoR RigDef + stock Simple2 terrain iPhone IPA: $IPA"
+echo "Built unsigned OGRE 14 / Metal + Simple2 + authored Foxbody 351W audio iPhone IPA: $IPA"
