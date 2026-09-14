@@ -57,6 +57,25 @@ src.write_text(text)
 print("Applied OGRE Metal stage-correct/zero-length GPU parameter patch")
 PY
 
+# OGRE 14.6 sizes Metal constant buffers by summing reflected members. That
+# misses C/Metal struct tail padding (for example float4x4 + float2 is 80 bytes,
+# not 72). The iOS debug layer validates the full reflected bufferDataSize at
+# draw time and aborts if setVertexBytes() is shorter. Preserve OGRE's member
+# offsets, but grow the backing parameter block to the size Metal reports.
+python3 - "$OGRE_SRC" <<'PY'
+from pathlib import Path
+import sys
+src = Path(sys.argv[1]) / "RenderSystems/Metal/src/OgreMetalProgram.mm"
+text = src.read_text()
+old = """                mConstantDefs->map.insert( GpuConstantDefinitionMap::value_type( varName, def ) );\n            }\n        }\n    }\n    //-----------------------------------------------------------------------\n    void MetalProgram::unloadHighLevelImpl(void)\n"""
+new = """                mConstantDefs->map.insert( GpuConstantDefinitionMap::value_type( varName, def ) );\n            }\n        }\n\n        const size_t reflectedBufferFloats =\n                (arg.bufferDataSize + sizeof(float) - 1u) / sizeof(float);\n        if( mConstantDefs->bufferSize < reflectedBufferFloats )\n        {\n            mConstantDefs->bufferSize = reflectedBufferFloats;\n            mLogicalToPhysical->bufferSize = reflectedBufferFloats;\n        }\n    }\n    //-----------------------------------------------------------------------\n    void MetalProgram::unloadHighLevelImpl(void)\n"""
+if old not in text:
+    raise SystemExit("OGRE Metal reflected-buffer-size patch anchor changed")
+text = text.replace(old, new, 1)
+src.write_text(text)
+print("Applied OGRE Metal reflected constant-buffer padding patch")
+PY
+
 rm -rf "$OGRE_BUILD"
 
 cmake \
