@@ -36,6 +36,7 @@ cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
     -framework UIKit \
     -framework Foundation \
     -framework QuartzCore \
+    -framework CoreGraphics \
     -o "$APP_DIR/$APP_NAME"
 
 chmod +x "$APP_DIR/$APP_NAME"
