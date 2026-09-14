@@ -196,7 +196,8 @@ c++filt < "$NM_RAW" > "$NM_DEMANGLED"
 grep -E 'MetalPlugin|MetalRenderSystem|Ogre.*Root' "$NM_RAW" | sed -n '1,20p'
 grep -q 'RoR::IOSNative::ParseRigDef' "$NM_DEMANGLED"
 grep -q 'RigDef::Parser::ProcessRawLine' "$NM_DEMANGLED"
-grep -q 'Ogre::TerrainGroup::loadAllTerrains' "$NM_DEMANGLED"
+# Simple2 is Flat=1, so the iOS adapter intentionally avoids Ogre::TerrainGroup's
+# indexed triangle-strip renderer. Verify the adapter itself survived dead stripping.
 grep -q 'RoR::IOSOgre::RoRTerrainScene' "$NM_DEMANGLED"
 
 (
