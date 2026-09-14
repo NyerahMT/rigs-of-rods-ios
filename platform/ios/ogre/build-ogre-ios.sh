@@ -51,6 +51,27 @@ src.write_text(text)
 print("Applied iOS Metal drawable-size synchronization patch")
 PY
 
+# OGRE 14.6 (and current upstream as of this port) unconditionally binds every
+# GPU parameter block with setVertexBytes(), including fragment programs and
+# zero-length parameter blocks. A fragment shader with no uniforms therefore
+# reaches Metal with &mConstants[0] on an empty vector and length 0. iOS 27's
+# Metal validation layer aborts in setVertexBytes rather than tolerating it.
+# Bind the correct shader stage and never issue a zero-length bytes binding.
+python3 - "$OGRE_SRC" <<'PY'
+from pathlib import Path
+import sys
+
+src = Path(sys.argv[1]) / "RenderSystems/Metal/src/OgreMetalRenderSystem.mm"
+text = src.read_text()
+old = """        // update const buffer\n        #if 1\n        [mActiveRenderEncoder setVertexBytes:params->getFloatPointer(0)\n            length:params->getConstantList().size() atIndex:MetalProgram::UNIFORM_INDEX_START];\n        #else\n        // TODO rather use this, but buffer seems to be never updated\n        size_t unused;\n        mAutoParamsBuffer->writeData(0, params->getConstantList().size(), params->getFloatPointer(0));\n        [mActiveRenderEncoder setVertexBuffer:mAutoParamsBuffer->getBufferName(unused) offset:0 atIndex:MetalProgram::UNIFORM_INDEX_START];\n        #endif\n"""
+new = """        // Update the correct stage's constant buffer. Never ask Metal to bind\n        // an empty transient byte range; getFloatPointer(0) is also invalid for\n        // an empty ConstantList.\n        const size_t constantBytes = params->getConstantList().size();\n        if( constantBytes == 0u )\n            return;\n\n        switch( gptype )\n        {\n        case GPT_VERTEX_PROGRAM:\n            [mActiveRenderEncoder setVertexBytes:params->getFloatPointer(0)\n                length:constantBytes atIndex:MetalProgram::UNIFORM_INDEX_START];\n            break;\n        case GPT_FRAGMENT_PROGRAM:\n            [mActiveRenderEncoder setFragmentBytes:params->getFloatPointer(0)\n                length:constantBytes atIndex:MetalProgram::UNIFORM_INDEX_START];\n            break;\n        default:\n            break;\n        }\n"""
+if old not in text:
+    raise SystemExit("OGRE Metal GPU-parameter patch anchor changed")
+text = text.replace(old, new, 1)
+src.write_text(text)
+print("Applied OGRE Metal stage-correct/zero-length GPU parameter patch")
+PY
+
 rm -rf "$OGRE_BUILD"
 
 cmake \
