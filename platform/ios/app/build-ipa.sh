@@ -34,7 +34,6 @@ cp "$ROOT/platform/ios/app/Info.plist" "$APP_DIR/Info.plist"
     "$LIB" \
     -framework UIKit \
     -framework Foundation \
-    -lc++ \
     -o "$APP_DIR/$APP_NAME"
 
 chmod +x "$APP_DIR/$APP_NAME"
@@ -44,7 +43,7 @@ lipo -info "$APP_DIR/$APP_NAME"
 
 (
     cd "$OUT_DIR"
-    /usr/bin/zip -qry "$IPA" Payload
+    /usr/bin/zip -qry "$APP_NAME.ipa" Payload
 )
 
 [[ -f "$IPA" ]]
