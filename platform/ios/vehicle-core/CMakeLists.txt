@@ -3,6 +3,7 @@ cmake_minimum_required(VERSION 3.20)
 project(RoRVehicleCore LANGUAGES CXX)
 
 add_library(ror_vehicle_core STATIC
+    DriftDemoRuntime.cpp
     RigPhysicsBuilder.cpp
     ../../../source/main/physics/BeamPhysics.cpp
     ../../../source/main/physics/Differentials.cpp
@@ -71,6 +72,12 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     target_link_libraries(ror_rig_physics_builder_probe PRIVATE ror_vehicle_core)
     target_compile_features(ror_rig_physics_builder_probe PRIVATE cxx_std_11)
 
+    add_executable(ror_drift_demo_runtime_probe
+        tests/DriftDemoRuntimeProbe.cpp
+    )
+    target_link_libraries(ror_drift_demo_runtime_probe PRIVATE ror_vehicle_core)
+    target_compile_features(ror_drift_demo_runtime_probe PRIVATE cxx_std_11)
+
     add_test(
         NAME ror_vehicle_core_probe
         COMMAND ror_vehicle_core_probe
@@ -98,5 +105,9 @@ if(BUILD_TESTING AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")
     add_test(
         NAME ror_rig_physics_builder_probe
         COMMAND ror_rig_physics_builder_probe
+    )
+    add_test(
+        NAME ror_drift_demo_runtime_probe
+        COMMAND ror_drift_demo_runtime_probe
     )
 endif()
