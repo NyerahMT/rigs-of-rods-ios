@@ -94,9 +94,9 @@ int main(int argc, char** argv)
         NSString* source = ResolveUnifiedInclude(ReadUTF8(shaderPath), ReadUTF8(headerPath));
 
         CompileStage(device, source, @"OGRE_VERTEX_SHADER",
-                     @[@"ror_game_vp", @"ror_vehicle_vp"]);
+                     @[@"ror_game_vp", @"ror_prop_vp", @"ror_vehicle_vp"]);
         CompileStage(device, source, @"OGRE_FRAGMENT_SHADER",
-                     @[@"ror_game_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
+                     @[@"ror_game_fp", @"ror_prop_fp", @"ror_vehicle_fp", @"ror_vehicle_emissive_fp"]);
 
         printf("OGRE-style Metal runtime shader probe passed (vertex + fragment entry points).\n");
         return 0;
