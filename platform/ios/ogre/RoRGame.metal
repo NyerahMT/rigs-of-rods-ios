@@ -58,8 +58,8 @@ vertex TexturedRasterizerData ror_vehicle_vp(TexturedVertex in [[stage_in]],
 }
 
 fragment half4 ror_vehicle_fp(TexturedRasterizerData in [[stage_in]],
-                              texture2d<half> diffuse_map [[texture(0)]],
-                              sampler diffuse_sampler [[sampler(0)]])
+                              metal::texture2d<half> diffuse_map [[texture(0)]],
+                              metal::sampler diffuse_sampler [[sampler(0)]])
 {
     const half4 texel = diffuse_map.sample(diffuse_sampler, in.uv);
     return texel * half4(in.colour);
