@@ -3,6 +3,7 @@
     kept intentionally equivalent to source/main/physics/flex/FlexBody.cpp.
 */
 #include "IOSFlexBody.h"
+#include "OgreMeshSerializer.h"
 
 #include <cmath>
 #include <limits>
@@ -10,6 +11,19 @@
 namespace RoR {
 namespace IOSOgre {
 namespace {
+
+// A large amount of classic RoR content (including Gabester's Bandit pack)
+// predates OGRE 1.8 and uses [MeshSerializer_v1.30]. OGRE 14 deliberately keeps
+// those readers disabled by default. Enable them before Ogre::Root constructs
+// MeshManager/MeshSerializer so trusted packaged legacy RoR meshes can load.
+// User-supplied content should eventually be upgraded/sandboxed before import;
+// OGRE documents pre-1.8 readers as legacy and not suitable for untrusted data.
+struct LegacyMeshFormatBootstrap
+{
+    LegacyMeshFormatBootstrap() { Ogre::MeshSerializer::enablePre1_8Formats(true); }
+};
+
+LegacyMeshFormatBootstrap g_legacy_mesh_format_bootstrap;
 
 constexpr float kEpsilon = 1.0e-10f;
 constexpr float kOrthogonalityLimit = 0.70710678118654752440f;
