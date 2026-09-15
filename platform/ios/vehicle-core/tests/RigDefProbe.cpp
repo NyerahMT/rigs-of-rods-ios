@@ -126,7 +126,7 @@ end
     Require(legacy.beams.size() == 4, "legacy detacher_group does not become a beam");
     Require(legacy.engine.present && legacy.engine.gear_ratios.size() == 4, "engoption does not corrupt engine block");
     Require(legacy.wheels.size() == 1, "meshwheels2 parsed as a physical wheel");
-    Require(legacy.wheels[0].wheels2, "meshwheels2 uses two-radius wheel builder");
+    Require(!legacy.wheels[0].wheels2, "meshwheels2 uses upstream two-node-per-ray topology");
     Require(Near(legacy.wheels[0].tire_radius, .335f) && Near(legacy.wheels[0].rim_radius, .20f), "meshwheels2 radius order");
     Require(Near(legacy.wheels[0].rim_spring, 2950000.0f) && Near(legacy.wheels[0].rim_damping, 200.0f), "meshwheels2 rim uses active beam defaults");
     Require(Near(legacy.wheels[0].tire_spring, 86000.0f) && Near(legacy.wheels[0].tire_damping, 1150.0f), "meshwheels2 tyre spring/damping");
