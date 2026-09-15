@@ -26,19 +26,9 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Restore runtime and apply upstream minimass parity
+      - name: Restore complete authored runtime
         run: |
           git show 20e3ce1299bad39f397fac7fe414e699cf9bad81:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp')
-          s=p.read_text()
-          old='node.mass = std::max(mass, 0.25f);'
-          assert s.count(old)==1
-          s=s.replace(old, 'node.mass = std::max(mass, DEFAULT_MINIMASS); // upstream RoR stability floor')
-          p.write_text(s)
-          PY
-          grep -n 'DEFAULT_MINIMASS' platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
 
       - name: Toolchain info
         run: |
@@ -51,11 +41,24 @@ jobs:
           test -s platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
           grep -q '^Daf Semi truck$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
 
-      - name: Build and run native behavior probes
+      - name: Build and run baseline native behavior probes
         run: |
           cmake -S platform/ios/vehicle-core -B build/vehicle-core-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build/vehicle-core-native --config Release
           ctest --test-dir build/vehicle-core-native --output-on-failure
+
+      - name: Apply upstream minimass parity for iPhone experiment
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp')
+          s=p.read_text()
+          old='node.mass = std::max(mass, 0.25f);'
+          assert s.count(old)==1, 'expected exactly one portable minimass floor'
+          s=s.replace(old, 'node.mass = std::max(mass, DEFAULT_MINIMASS); // upstream RoR stability floor')
+          p.write_text(s)
+          PY
+          grep -n 'DEFAULT_MINIMASS' platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
 
       - name: Verify authored OGRE visual extraction
         run: |
@@ -63,7 +66,7 @@ jobs:
           clang++ -std=c++17 -O2 -Isource/main/resources/rig_def_fileformat -Iplatform/ios/ogre platform/ios/ogre/AuthoredVisualGeometry.cpp source/main/resources/rig_def_fileformat/PortableRigDef.cpp platform/ios/ogre/VisualGeometryProbe.cpp -o build/ogre-visual-probe/visual_geometry_probe
           build/ogre-visual-probe/visual_geometry_probe platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
 
-      - name: Cross-compile RoR vehicle physics for iPhone
+      - name: Cross-compile minimass-parity RoR vehicle physics for iPhone
         run: |
           cmake -S platform/ios/vehicle-core -B build/vehicle-core-ios -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build build/vehicle-core-ios --config Release
