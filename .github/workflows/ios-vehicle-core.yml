@@ -77,8 +77,19 @@ jobs:
       - name: Cross-compile upstream RoR RigDef for iPhone
         run: bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
 
-      - name: Build unsigned OGRE game-view iPhone IPA
-        run: platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
+      - name: Build unsigned OGRE game-view iPhone IPA with physics HUD
+        run: |
+          cp platform/ios/app/prepare_audio_game_source.py build/prepare_audio_game_source.py.orig
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('platform/ios/app/build-ipa.sh')
+          s=p.read_text()
+          anchor='python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \\\n    "$ROOT/platform/ios/app/OgreGameApp.mm" "$AUDIO_GAME_SRC"\n'
+          replacement=anchor+'python3 "$ROOT/platform/ios/app/apply_physics_debug.py" "$AUDIO_GAME_SRC"\n'
+          assert s.count(anchor)==1, 'build-ipa prepare source anchor drifted'
+          p.write_text(s.replace(anchor,replacement,1))
+          PY
+          platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
 
       - name: Verify OGRE IPA bundle
         run: |
