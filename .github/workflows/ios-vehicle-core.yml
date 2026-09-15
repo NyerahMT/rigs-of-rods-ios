@@ -67,12 +67,63 @@ jobs:
         run: |
           APP=build/ios-app/Payload/RoRIOSProbe.app
           BANDIT=build/gabester-bandit-resource/extracted
+          DST="$APP/Content/bandit"
           test -s "$BANDIT/gavrilbandit400GT.truck"
-          mkdir -p "$APP/Content/bandit"
-          cp -R "$BANDIT/." "$APP/Content/bandit/"
-          cp "$BANDIT/gavrilbandit400GT.truck" "$APP/Content/bandit/Bandit.truck"
-          test -s "$APP/Content/bandit/Bandit.truck"
-          grep -q '^Gavril Bandit 400 GT$' "$APP/Content/bandit/Bandit.truck"
+          mkdir -p "$DST"
+          cp -R "$BANDIT/." "$DST/"
+          cp "$BANDIT/gavrilbandit400GT.truck" "$DST/Bandit.truck"
+          test -s "$DST/Bandit.truck"
+          grep -q '^Gavril Bandit 400 GT$' "$DST/Bandit.truck"
+
+          # OGRE/Metal on iOS cannot sample the legacy DXT/BC DDS files used by
+          # Gabester's pack. Preserve filenames/material references, but transcode
+          # every DXT1/3/5 texture to the same BGRA8 DDS representation used by
+          # the already-working DAF and Simple2 resources.
+          python3 - "$DST" platform/ios/ogre/transcode_dxt_dds_for_ios.py <<'PY'
+          from pathlib import Path
+          import subprocess
+          import sys
+          root = Path(sys.argv[1])
+          transcoder = Path(sys.argv[2])
+          converted = 0
+          for path in sorted(root.rglob('*.dds')):
+              header = path.read_bytes()[:128]
+              if len(header) < 88 or header[:4] != b'DDS ':
+                  continue
+              if header[84:88] not in {b'DXT1', b'DXT3', b'DXT5'}:
+                  continue
+              temp = path.with_name(path.name + '.bgra8')
+              subprocess.check_call([sys.executable, str(transcoder), str(path), str(temp)])
+              temp.replace(path)
+              converted += 1
+          print(f'Bandit iOS DDS transcoded: {converted}')
+          if converted == 0:
+              raise SystemExit('expected at least one compressed Bandit DDS texture')
+          PY
+
+          # The iOS audio bridge consumes the vehicle's actual soundscript and GT
+          # recordings; these checks keep a silent package from reaching device.
+          test -s "$DST/gavrilbandit.soundscript"
+          test -s "$DST/banditv8GTidle.wav"
+          test -s "$DST/banditv8GTmed.wav"
+          test -s "$DST/banditstart.wav"
+          grep -q 'banditv8GTEngineAcc' "$DST/Bandit.truck"
+          grep -q 'banditStarter' "$DST/Bandit.truck"
+
+          # Critical managed-material diffuse maps must now be uncompressed BGRA8.
+          python3 - "$DST" <<'PY'
+          from pathlib import Path
+          import struct
+          import sys
+          root = Path(sys.argv[1])
+          for name in ['gavrilbanditGT.dds','banditV8.dds','banditglass.dds','banditintglass.dds','banditinterior.dds']:
+              path = root / name
+              data = path.read_bytes()[:128]
+              assert data[:4] == b'DDS ', path
+              assert data[84:88] == b'\0\0\0\0', f'{name}: still FourCC compressed'
+              assert struct.unpack_from('<I', data, 88)[0] == 32, f'{name}: not BGRA8'
+          PY
+
           rm -f build/ios-app/RoRIOSProbe.ipa
           (cd build/ios-app && zip -qry RoRIOSProbe.ipa Payload)
       - name: Verify OGRE IPA bundle
@@ -86,6 +137,10 @@ jobs:
           plutil -lint "$APP/Info.plist"
           test -s "$APP/Content/bandit/Bandit.truck"
           grep -q '^Gavril Bandit 400 GT$' "$APP/Content/bandit/Bandit.truck"
+          test -s "$APP/Content/bandit/gavrilbandit.soundscript"
+          test -s "$APP/Content/bandit/banditv8GTidle.wav"
+          test -s "$APP/Content/bandit/banditv8GTmed.wav"
+          test -s "$APP/Content/bandit/banditstart.wav"
       - name: Upload unsigned OGRE game-view iPhone IPA
         uses: actions/upload-artifact@v4
         with: { name: ror-ios-ogre-gameview-ipa, path: build/ios-app/RoRIOSProbe.ipa, if-no-files-found: error }
