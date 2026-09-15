@@ -23,6 +23,7 @@ enum class Section
     Wheels2,
     MeshWheels2,
     Engine,
+    EngOption,
     Brakes,
     Contacters,
     Minimass,
@@ -117,6 +118,7 @@ Section SectionFromKeyword(const std::string& keyword)
     if (keyword == "wheels2") return Section::Wheels2;
     if (keyword == "meshwheels2") return Section::MeshWheels2;
     if (keyword == "engine") return Section::Engine;
+    if (keyword == "engoption") return Section::EngOption;
     if (keyword == "brakes") return Section::Brakes;
     if (keyword == "contacters") return Section::Contacters;
     if (keyword == "minimass") return Section::Minimass;
@@ -128,7 +130,7 @@ bool StartsUnsupportedBlock(const std::string& keyword)
     static const char* const blocks[] = {
         "airbrakes", "animators", "assetpacks", "axles", "cab", "cameras", "camerarail",
         "cinecam", "collisionboxes", "commands", "commands2", "customdashboardinputs",
-        "description", "engoption", "engturbo", "exhausts", "fixes", "flares", "flares2",
+        "description", "engturbo", "exhausts", "fixes", "flares", "flares2",
         "flares3", "flaregroups_no_import", "flexbodies", "flexbodywheels", "fusedrag",
         "guisettings", "help", "hooks", "interaxles", "lockgroups", "managedmaterials",
         "materialflarebindings", "meshwheels", "particles", "pistonprops", "props", "railgroups",
@@ -137,18 +139,12 @@ bool StartsUnsupportedBlock(const std::string& keyword)
         "torquecurve", "transfercase", "triggers", "turbojets", "turboprops", "turboprops2",
         "videocamera", "wheeldetachers", "wings"
     };
-    for (const char* block : blocks)
-    {
-        if (keyword == block) return true;
-    }
+    for (const char* block : blocks) if (keyword == block) return true;
     return false;
 }
 
 bool IsIgnoredDirective(const std::string& keyword)
 {
-    // These are directives in upstream RigDef: they are processed immediately and do not
-    // change the active block. Portable physics does not need their payload, but it must
-    // not accidentally parse them as nodes/beams/shocks/etc.
     static const char* const directives[] = {
         "add_animation", "antilockbrakes", "author", "backmesh", "cruisecontrol",
         "default_skin", "detacher_group", "disabledefaultsounds", "enable_advanced_deformation",
@@ -159,10 +155,7 @@ bool IsIgnoredDirective(const std::string& keyword)
         "set_managedmaterials_options", "set_skeleton_settings", "slidenode_connect_instantly",
         "speedlimiter", "submesh_groundmodel", "tractioncontrol"
     };
-    for (const char* directive : directives)
-    {
-        if (keyword == directive) return true;
-    }
+    for (const char* directive : directives) if (keyword == directive) return true;
     return false;
 }
 
@@ -215,8 +208,6 @@ Document Parse(const std::string& text)
             continue;
         }
 
-        // Stateful RigDef directives. Like the upstream parser, these do not end the
-        // current block, which matters for legacy files that interleave directives with beams.
         if (keyword == "set_beam_defaults_scale")
         {
             if (tokens.size() >= 5)
@@ -226,10 +217,7 @@ Document Parse(const std::string& text)
                 beam_scale.deform = F(tokens[3], 1.0f);
                 beam_scale.strength = F(tokens[4], 1.0f);
             }
-            else
-            {
-                Warn(document, line_number, "set_beam_defaults_scale requires four values");
-            }
+            else Warn(document, line_number, "set_beam_defaults_scale requires four values");
             continue;
         }
 
@@ -242,10 +230,7 @@ Document Parse(const std::string& text)
                 beam_defaults.deform = Resettable(tokens[3], 400000.0f) * beam_scale.deform;
                 beam_defaults.strength = Resettable(tokens[4], 100000.0f) * beam_scale.strength;
             }
-            else
-            {
-                Warn(document, line_number, "set_beam_defaults requires four values");
-            }
+            else Warn(document, line_number, "set_beam_defaults requires four values");
             continue;
         }
 
@@ -259,24 +244,18 @@ Document Parse(const std::string& text)
                 if (tokens.size() >= 5) document.node_defaults.surface = Resettable(tokens[4], 1.0f);
                 document.node_defaults.options = tokens.size() >= 6 ? tokens[5] : "";
             }
-            else
-            {
-                Warn(document, line_number, "set_node_defaults requires load weight");
-            }
+            else Warn(document, line_number, "set_node_defaults requires load weight");
             continue;
         }
 
         if (keyword == "set_default_minimass")
         {
-            if (tokens.size() >= 2)
-                active_minimass = Resettable(tokens[1], document.minimass);
-            else
-                Warn(document, line_number, "set_default_minimass requires a value");
+            if (tokens.size() >= 2) active_minimass = Resettable(tokens[1], document.minimass);
+            else Warn(document, line_number, "set_default_minimass requires a value");
             continue;
         }
 
-        if (IsIgnoredDirective(keyword))
-            continue;
+        if (IsIgnoredDirective(keyword)) continue;
 
         const Section new_section = SectionFromKeyword(keyword);
         if (new_section != Section::Unknown)
@@ -284,7 +263,6 @@ Document Parse(const std::string& text)
             section = new_section;
             continue;
         }
-
         if (StartsUnsupportedBlock(keyword))
         {
             section = Section::Unknown;
@@ -301,10 +279,7 @@ Document Parse(const std::string& text)
                     document.globals.load_mass = F(tokens[1]);
                     if (tokens.size() > 2) document.globals.material = tokens[2];
                 }
-                else
-                {
-                    Warn(document, line_number, "globals requires dry mass and load mass");
-                }
+                else Warn(document, line_number, "globals requires dry mass and load mass");
                 section = Section::None;
                 break;
 
@@ -319,9 +294,7 @@ Document Parse(const std::string& text)
                 {
                     Node node;
                     node.id = tokens[0];
-                    node.x = F(tokens[1]);
-                    node.y = F(tokens[2]);
-                    node.z = F(tokens[3]);
+                    node.x = F(tokens[1]); node.y = F(tokens[2]); node.z = F(tokens[3]);
                     node.options = document.node_defaults.options;
                     if (tokens.size() > 4) node.options += tokens[4];
                     node.load_weight = document.node_defaults.load_weight;
@@ -339,22 +312,16 @@ Document Parse(const std::string& text)
                     }
                     document.nodes.push_back(node);
                 }
-                else
-                {
-                    Warn(document, line_number, "node requires id,x,y,z");
-                }
+                else Warn(document, line_number, "node requires id,x,y,z");
                 break;
 
             case Section::Beams:
                 if (tokens.size() >= 2)
                 {
                     Beam beam;
-                    beam.node_a = tokens[0];
-                    beam.node_b = tokens[1];
-                    beam.spring = beam_defaults.spring;
-                    beam.damping = beam_defaults.damping;
-                    beam.deform = beam_defaults.deform;
-                    beam.strength = beam_defaults.strength;
+                    beam.node_a = tokens[0]; beam.node_b = tokens[1];
+                    beam.spring = beam_defaults.spring; beam.damping = beam_defaults.damping;
+                    beam.deform = beam_defaults.deform; beam.strength = beam_defaults.strength;
                     if (tokens.size() > 2) beam.options = tokens[2];
                     document.beams.push_back(beam);
                 }
@@ -364,12 +331,10 @@ Document Parse(const std::string& text)
                 if (tokens.size() >= 3)
                 {
                     Hydro hydro;
-                    hydro.node_a = tokens[0];
-                    hydro.node_b = tokens[1];
+                    hydro.node_a = tokens[0]; hydro.node_b = tokens[1];
                     hydro.lengthening_factor = F(tokens[2]);
                     if (tokens.size() > 3) hydro.options = tokens[3];
-                    hydro.spring = beam_defaults.spring;
-                    hydro.damping = beam_defaults.damping;
+                    hydro.spring = beam_defaults.spring; hydro.damping = beam_defaults.damping;
                     document.hydros.push_back(hydro);
                 }
                 break;
@@ -379,20 +344,16 @@ Document Parse(const std::string& text)
                 if (tokens.size() >= 7)
                 {
                     Shock shock;
-                    shock.node_a = tokens[0];
-                    shock.node_b = tokens[1];
-                    shock.spring = F(tokens[2]);
-                    shock.damping = F(tokens[3]);
+                    shock.node_a = tokens[0]; shock.node_b = tokens[1];
+                    shock.spring = F(tokens[2]); shock.damping = F(tokens[3]);
                     if (section == Section::Shocks)
                     {
-                        shock.short_bound = F(tokens[4]);
-                        shock.long_bound = F(tokens[5]);
+                        shock.short_bound = F(tokens[4]); shock.long_bound = F(tokens[5]);
                         shock.precompression = F(tokens[6], 1.0f);
                     }
                     else if (tokens.size() >= 13)
                     {
-                        shock.short_bound = F(tokens[10]);
-                        shock.long_bound = F(tokens[11]);
+                        shock.short_bound = F(tokens[10]); shock.long_bound = F(tokens[11]);
                         shock.precompression = F(tokens[12], 1.0f);
                     }
                     document.shocks.push_back(shock);
@@ -403,18 +364,10 @@ Document Parse(const std::string& text)
                 if (tokens.size() >= 12)
                 {
                     Wheel wheel;
-                    wheel.tire_radius = F(tokens[0]);
-                    wheel.width = F(tokens[1]);
-                    wheel.num_rays = I(tokens[2]);
-                    wheel.axis_node_0 = tokens[3];
-                    wheel.axis_node_1 = tokens[4];
-                    wheel.rigidity_node = tokens[5];
-                    wheel.braking = I(tokens[6]);
-                    wheel.propulsion = I(tokens[7]);
-                    wheel.reference_arm_node = tokens[8];
-                    wheel.mass = F(tokens[9]);
-                    wheel.tire_spring = F(tokens[10]);
-                    wheel.tire_damping = F(tokens[11]);
+                    wheel.tire_radius = F(tokens[0]); wheel.width = F(tokens[1]); wheel.num_rays = I(tokens[2]);
+                    wheel.axis_node_0 = tokens[3]; wheel.axis_node_1 = tokens[4]; wheel.rigidity_node = tokens[5];
+                    wheel.braking = I(tokens[6]); wheel.propulsion = I(tokens[7]); wheel.reference_arm_node = tokens[8];
+                    wheel.mass = F(tokens[9]); wheel.tire_spring = F(tokens[10]); wheel.tire_damping = F(tokens[11]);
                     document.wheels.push_back(wheel);
                 }
                 break;
@@ -424,87 +377,65 @@ Document Parse(const std::string& text)
                 {
                     Wheel wheel;
                     wheel.wheels2 = true;
-                    wheel.rim_radius = F(tokens[0]);
-                    wheel.tire_radius = F(tokens[1]);
-                    wheel.width = F(tokens[2]);
-                    wheel.num_rays = I(tokens[3]);
-                    wheel.axis_node_0 = tokens[4];
-                    wheel.axis_node_1 = tokens[5];
-                    wheel.rigidity_node = tokens[6];
-                    wheel.braking = I(tokens[7]);
-                    wheel.propulsion = I(tokens[8]);
-                    wheel.reference_arm_node = tokens[9];
-                    wheel.mass = F(tokens[10]);
-                    wheel.rim_spring = F(tokens[11]);
-                    wheel.rim_damping = F(tokens[12]);
-                    wheel.tire_spring = F(tokens[13]);
-                    wheel.tire_damping = F(tokens[14]);
+                    wheel.rim_radius = F(tokens[0]); wheel.tire_radius = F(tokens[1]); wheel.width = F(tokens[2]); wheel.num_rays = I(tokens[3]);
+                    wheel.axis_node_0 = tokens[4]; wheel.axis_node_1 = tokens[5]; wheel.rigidity_node = tokens[6];
+                    wheel.braking = I(tokens[7]); wheel.propulsion = I(tokens[8]); wheel.reference_arm_node = tokens[9];
+                    wheel.mass = F(tokens[10]); wheel.rim_spring = F(tokens[11]); wheel.rim_damping = F(tokens[12]);
+                    wheel.tire_spring = F(tokens[13]); wheel.tire_damping = F(tokens[14]);
                     document.wheels.push_back(wheel);
                 }
                 break;
 
             case Section::MeshWheels2:
-                // Unlike wheels2, upstream meshwheels2 uses the simple two-nodes-per-ray
-                // wheel topology. The rim radius is visual metadata; physical nodes live at
-                // tyre_radius. The active beam defaults stiffen only the ring reinforcement.
                 if (tokens.size() >= 16)
                 {
                     Wheel wheel;
                     wheel.wheels2 = false;
-                    wheel.tire_radius = F(tokens[0]);
-                    wheel.rim_radius = F(tokens[1]);
-                    wheel.width = F(tokens[2]);
-                    wheel.num_rays = I(tokens[3]);
-                    wheel.axis_node_0 = tokens[4];
-                    wheel.axis_node_1 = tokens[5];
-                    wheel.rigidity_node = tokens[6];
-                    wheel.braking = I(tokens[7]);
-                    wheel.propulsion = I(tokens[8]);
-                    wheel.reference_arm_node = tokens[9];
-                    wheel.mass = F(tokens[10]);
-                    wheel.rim_spring = beam_defaults.spring;
-                    wheel.rim_damping = beam_defaults.damping;
-                    wheel.tire_spring = F(tokens[11]);
-                    wheel.tire_damping = F(tokens[12]);
+                    wheel.tire_radius = F(tokens[0]); wheel.rim_radius = F(tokens[1]); wheel.width = F(tokens[2]); wheel.num_rays = I(tokens[3]);
+                    wheel.axis_node_0 = tokens[4]; wheel.axis_node_1 = tokens[5]; wheel.rigidity_node = tokens[6];
+                    wheel.braking = I(tokens[7]); wheel.propulsion = I(tokens[8]); wheel.reference_arm_node = tokens[9];
+                    wheel.mass = F(tokens[10]); wheel.rim_spring = beam_defaults.spring; wheel.rim_damping = beam_defaults.damping;
+                    wheel.tire_spring = F(tokens[11]); wheel.tire_damping = F(tokens[12]);
                     document.wheels.push_back(wheel);
                 }
-                else
-                {
-                    Warn(document, line_number, "meshwheels2 requires 16 values");
-                }
+                else Warn(document, line_number, "meshwheels2 requires 16 values");
                 break;
 
             case Section::Engine:
                 if (tokens.size() >= 6)
                 {
                     document.engine.present = true;
-                    document.engine.shift_down_rpm = F(tokens[0]);
-                    document.engine.shift_up_rpm = F(tokens[1]);
-                    document.engine.torque = F(tokens[2]);
-                    document.engine.differential_ratio = F(tokens[3], 1.0f);
-                    document.engine.reverse_gear_ratio = F(tokens[4]);
-                    document.engine.neutral_gear_ratio = F(tokens[5], 1.0f);
+                    document.engine.shift_down_rpm = F(tokens[0]); document.engine.shift_up_rpm = F(tokens[1]);
+                    document.engine.torque = F(tokens[2]); document.engine.differential_ratio = F(tokens[3], 1.0f);
+                    document.engine.reverse_gear_ratio = F(tokens[4]); document.engine.neutral_gear_ratio = F(tokens[5], 1.0f);
                     document.engine.gear_ratios.clear();
                     bool terminated = false;
                     for (std::size_t i = 6; i < tokens.size(); ++i)
                     {
                         const float ratio = F(tokens[i]);
-                        if (ratio < 0.0f)
-                        {
-                            terminated = true;
-                            break;
-                        }
+                        if (ratio < 0.0f) { terminated = true; break; }
                         document.engine.gear_ratios.push_back(ratio);
                     }
-                    if (!terminated)
-                        Warn(document, line_number, "engine forward gears should end with -1 terminator");
-                    if (document.engine.gear_ratios.empty())
-                        Warn(document, line_number, "engine requires at least one forward gear");
+                    if (!terminated) Warn(document, line_number, "engine forward gears should end with -1 terminator");
+                    if (document.engine.gear_ratios.empty()) Warn(document, line_number, "engine requires at least one forward gear");
                 }
-                else
+                else Warn(document, line_number, "engine requires shift RPMs, torque, differential, reverse and neutral ratios");
+                section = Section::None;
+                break;
+
+            case Section::EngOption:
+                if (!tokens.empty())
                 {
-                    Warn(document, line_number, "engine requires shift RPMs, torque, differential, reverse and neutral ratios");
+                    document.engoption.present = true;
+                    document.engoption.inertia = F(tokens[0], 10.0f);
+                    if (tokens.size() > 1 && !tokens[1].empty()) document.engoption.type = tokens[1][0];
+                    if (tokens.size() > 2) document.engoption.clutch_force = F(tokens[2], -1.0f);
+                    if (tokens.size() > 3) document.engoption.shift_time = F(tokens[3], -1.0f);
+                    if (tokens.size() > 4) document.engoption.clutch_time = F(tokens[4], -1.0f);
+                    if (tokens.size() > 5) document.engoption.post_shift_time = F(tokens[5], -1.0f);
                 }
+                else Warn(document, line_number, "engoption requires engine inertia");
+                section = Section::None;
                 break;
 
             case Section::Brakes:
@@ -514,6 +445,7 @@ Document Parse(const std::string& text)
                     document.brakes.service_force = F(tokens[0], 30000.0f);
                     if (tokens.size() > 1) document.brakes.parking_force = F(tokens[1], -1.0f);
                 }
+                section = Section::None;
                 break;
 
             case Section::Contacters:
