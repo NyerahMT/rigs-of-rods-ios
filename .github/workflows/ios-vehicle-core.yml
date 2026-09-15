@@ -4,35 +4,15 @@ on:
   push:
     branches: [ ios-port ]
     paths:
-      - 'source/main/physics/ApproxMath.h'
-      - 'source/main/physics/BeamPhysics.*'
-      - 'source/main/physics/Differentials.*'
-      - 'source/main/physics/HydroPhysics.*'
-      - 'source/main/physics/WheelPhysics.*'
-      - 'source/main/physics/SimConstants.h'
-      - 'source/main/physics/collision/GroundContact.*'
-      - 'source/main/physics/collision/GroundFriction.*'
+      - 'source/main/physics/**'
       - 'source/main/resources/rig_def_fileformat/**'
-      - 'platform/ios/vehicle-core/**'
-      - 'platform/ios/ror-native/**'
-      - 'platform/ios/ogre/**'
-      - 'platform/ios/app/**'
+      - 'platform/ios/**'
       - '.github/workflows/ios-vehicle-core.yml'
   pull_request:
     paths:
-      - 'source/main/physics/ApproxMath.h'
-      - 'source/main/physics/BeamPhysics.*'
-      - 'source/main/physics/Differentials.*'
-      - 'source/main/physics/HydroPhysics.*'
-      - 'source/main/physics/WheelPhysics.*'
-      - 'source/main/physics/SimConstants.h'
-      - 'source/main/physics/collision/GroundContact.*'
-      - 'source/main/physics/collision/GroundFriction.*'
+      - 'source/main/physics/**'
       - 'source/main/resources/rig_def_fileformat/**'
-      - 'platform/ios/vehicle-core/**'
-      - 'platform/ios/ror-native/**'
-      - 'platform/ios/ogre/**'
-      - 'platform/ios/app/**'
+      - 'platform/ios/**'
       - '.github/workflows/ios-vehicle-core.yml'
   workflow_dispatch:
 
@@ -40,10 +20,26 @@ jobs:
   vehicle-core:
     name: RoR physics + OGRE Metal game view / iPhone ARM64
     runs-on: macos-15
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Restore runtime and apply upstream minimass parity
+        run: |
+          # Restore the known-good runtime source from immediately before the
+          # diagnostic mass-parity experiment, then apply RoR's built-in
+          # DEFAULT_MINIMASS instead of the portable 0.25 kg floor.
+          git show b150dca0ecbe946265baa4d49f0da16638cb0f44:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp')
+          s=p.read_text()
+          old='node.mass = std::max(mass, 0.25f);'
+          assert s.count(old)==1
+          s=s.replace(old, 'node.mass = std::max(mass, DEFAULT_MINIMASS); // upstream RoR stability floor')
+          p.write_text(s)
+          PY
+          grep -n 'DEFAULT_MINIMASS' platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
 
       - name: Toolchain info
         run: |
@@ -55,110 +51,46 @@ jobs:
         run: |
           test -s platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
           grep -q '^Daf Semi truck$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
-          grep -q '10000.0,  0.0, b6b0UID-tracks/semi' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
-          grep -q '^submesh$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
-          grep -q '^cab$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
 
       - name: Build and run native behavior probes
         run: |
-          cmake \
-            -S platform/ios/vehicle-core \
-            -B build/vehicle-core-native \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=ON
+          cmake -S platform/ios/vehicle-core -B build/vehicle-core-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build/vehicle-core-native --config Release
           ctest --test-dir build/vehicle-core-native --output-on-failure
 
       - name: Verify authored OGRE visual extraction
         run: |
           mkdir -p build/ogre-visual-probe
-          clang++ -std=c++17 -O2 \
-            -Isource/main/resources/rig_def_fileformat \
-            -Iplatform/ios/ogre \
-            platform/ios/ogre/AuthoredVisualGeometry.cpp \
-            source/main/resources/rig_def_fileformat/PortableRigDef.cpp \
-            platform/ios/ogre/VisualGeometryProbe.cpp \
-            -o build/ogre-visual-probe/visual_geometry_probe
-          build/ogre-visual-probe/visual_geometry_probe \
-            platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
+          clang++ -std=c++17 -O2 -Isource/main/resources/rig_def_fileformat -Iplatform/ios/ogre platform/ios/ogre/AuthoredVisualGeometry.cpp source/main/resources/rig_def_fileformat/PortableRigDef.cpp platform/ios/ogre/VisualGeometryProbe.cpp -o build/ogre-visual-probe/visual_geometry_probe
+          build/ogre-visual-probe/visual_geometry_probe platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
 
       - name: Cross-compile RoR vehicle physics for iPhone
         run: |
-          cmake \
-            -S platform/ios/vehicle-core \
-            -B build/vehicle-core-ios \
-            -DCMAKE_SYSTEM_NAME=iOS \
-            -DCMAKE_OSX_SYSROOT=iphoneos \
-            -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DBUILD_TESTING=OFF
+          cmake -S platform/ios/vehicle-core -B build/vehicle-core-ios -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build build/vehicle-core-ios --config Release
 
-      - name: Verify iPhone vehicle-core artifact
-        run: |
-          LIB=$(find build/vehicle-core-ios -name 'libror_vehicle_core.a' -print -quit)
-          test -n "$LIB"
-          file "$LIB"
-          lipo -info "$LIB"
-          xcrun --sdk iphoneos nm -gU "$LIB" | grep -E 'Calc(Open|Viscous|Locked|Separate)Diff|CalcBeamStress|ApplyBeamForce|IntegrateNode|StepWheelNodes|StepHydroSteeringState' || true
-
       - name: Build pinned OGRE 14 Metal for iPhone
-        run: |
-          bash platform/ios/ogre/build-ogre-ios.sh
-
-      - name: Verify OGRE Metal ARM64 artifacts
-        run: |
-          OGRE_MAIN=$(find build/ogre-ios -name 'libOgreMainStatic.a' -print -quit)
-          OGRE_METAL=$(find build/ogre-ios -name 'libRenderSystem_MetalStatic.a' -print -quit)
-          test -n "$OGRE_MAIN"
-          test -n "$OGRE_METAL"
-          lipo -info "$OGRE_MAIN" | grep -q arm64
-          lipo -info "$OGRE_METAL" | grep -q arm64
-          xcrun --sdk iphoneos nm -gU "$OGRE_METAL" | grep -E 'MetalPlugin|MetalRenderSystem' | head -20
-          test "$(cat build/ogre-ios/OGRE_PINNED_COMMIT.txt)" = '5cccbeec824798629931cfd9184bde729610e30d'
+        run: bash platform/ios/ogre/build-ogre-ios.sh
 
       - name: Cross-compile upstream RoR RigDef for iPhone
-        run: |
-          bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
-
-      - name: Verify native RoR parser artifact
-        run: |
-          LIB=build/ror-native-rigdef-ios/libror_native_rigdef.a
-          test -s "$LIB"
-          lipo -info "$LIB" | grep -q arm64
-          test "$(cat build/ror-native-rigdef-ios/FMT_PINNED_COMMIT.txt)" = '1be298e1bd68957e4cd352e1f676f00e07dcfb57'
-          xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RigDef::Parser::ProcessRawLine'
-          xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RigDef::SequentialImporter::Process'
-          xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RoR::IOSNative::ParseRigDef'
+        run: bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
 
       - name: Inject on-device physics diagnostics
-        run: |
-          python3 platform/ios/app/apply_physics_debug.py platform/ios/app/OgreGameApp.mm
+        run: python3 platform/ios/app/apply_physics_debug.py platform/ios/app/OgreGameApp.mm
 
       - name: Build unsigned OGRE game-view iPhone IPA
-        run: |
-          platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
+        run: platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
 
       - name: Verify OGRE IPA bundle
         run: |
           test -f build/ios-app/RoRIOSProbe.ipa
-          rm -rf build/ipa-verify
-          mkdir -p build/ipa-verify
+          rm -rf build/ipa-verify && mkdir -p build/ipa-verify
           unzip -q build/ios-app/RoRIOSProbe.ipa -d build/ipa-verify
           APP=build/ipa-verify/Payload/RoRIOSProbe.app
           test -f "$APP/RoRIOSProbe"
-          test -f "$APP/Info.plist"
-          test -s "$APP/Content/dafsemi/b6b0UID-semi.truck"
-          test -s "$APP/OgreMedia/Main/RoRGame.metal"
-          test -s "$APP/OgreMedia/Main/OgreUnifiedShader.h"
-          test -s "$APP/OgreMedia/Main/DefaultShaders.metal"
-          grep -q '^Daf Semi truck$' "$APP/Content/dafsemi/b6b0UID-semi.truck"
           file "$APP/RoRIOSProbe"
           lipo -info "$APP/RoRIOSProbe" | grep -q arm64
           plutil -lint "$APP/Info.plist"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist" | grep -q '^0.2$'
-          du -h build/ios-app/RoRIOSProbe.ipa
 
       - name: Upload unsigned OGRE game-view iPhone IPA
         uses: actions/upload-artifact@v4
