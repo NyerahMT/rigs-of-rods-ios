@@ -27,11 +27,13 @@ int main()
 {
     const char* rig_text = R"ROR(Portable Drift Coupe
 set_beam_defaults 800000, 9000, 300000, 500000
+set_node_defaults 0, 42
 
 nodes
 0,  1.25, 0.55,  0.78
 1,  1.25, 0.55, -0.78
 2, -1.25, 0.55,  0.78
+set_node_defaults 15, 75
 3, -1.25, 0.55, -0.78
 4,  1.05, 0.85,  0.25
 5,  1.05, 0.85, -0.25
@@ -50,7 +52,6 @@ shocks
 0, 4, 220000, 4200, 0.70, 1.25, 1.00
 1, 5, 220000, 4200, 0.70, 1.25, 1.00
 
-; Unsupported visual blocks must not poison the next supported block.
 props
 0, 1, 2, 0, 0, 0, 0, 0, 0, dummy.mesh
 
@@ -77,6 +78,13 @@ end
     Require(rig.hydros.size() == 2, "hydros section is parsed");
     Require(rig.shocks.size() == 2, "shocks section is parsed");
     Require(rig.wheels.size() == 4, "wheels2 section is parsed after unsupported visual blocks");
+
+    Require(Near(rig.nodes[0].load_weight, 0.0f), "first node-default load weight is inherited");
+    Require(Near(rig.nodes[0].minimass, 42.0f), "first node-default minimass is inherited");
+    Require(Near(rig.nodes[2].minimass, 42.0f), "node defaults remain active until changed");
+    Require(Near(rig.nodes[3].load_weight, 15.0f), "changed node-default load weight is inherited");
+    Require(Near(rig.nodes[3].minimass, 75.0f), "changed node-default minimass is inherited");
+    Require(Near(rig.nodes[5].minimass, 75.0f), "changed node defaults remain active");
 
     Require(Near(rig.beams[0].spring, 800000.0f), "set_beam_defaults spring reaches beams");
     Require(Near(rig.beams[0].damping, 9000.0f), "set_beam_defaults damping reaches beams");
