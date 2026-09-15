@@ -125,6 +125,13 @@ end
     Require(legacy.nodes.size() == 4, "legacy extcamera does not become a node");
     Require(legacy.beams.size() == 4, "legacy detacher_group does not become a beam");
     Require(legacy.engine.present && legacy.engine.gear_ratios.size() == 4, "engoption does not corrupt engine block");
+    Require(legacy.engoption.present, "engoption parsed");
+    Require(Near(legacy.engoption.inertia, .075f), "engoption inertia");
+    Require(legacy.engoption.type == 'c', "engoption engine type");
+    Require(Near(legacy.engoption.clutch_force, 1000.0f), "engoption clutch force");
+    Require(Near(legacy.engoption.shift_time, .3f), "engoption shift time");
+    Require(Near(legacy.engoption.clutch_time, .6f), "engoption clutch time");
+    Require(Near(legacy.engoption.post_shift_time, .3f), "engoption post-shift time");
     Require(legacy.wheels.size() == 1, "meshwheels2 parsed as a physical wheel");
     Require(!legacy.wheels[0].wheels2, "meshwheels2 uses upstream two-node-per-ray topology");
     Require(Near(legacy.wheels[0].tire_radius, .335f) && Near(legacy.wheels[0].rim_radius, .20f), "meshwheels2 radius order");
