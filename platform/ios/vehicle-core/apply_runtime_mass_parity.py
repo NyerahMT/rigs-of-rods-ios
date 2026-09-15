@@ -142,5 +142,144 @@ one('''        if (!rig.globals.present)
 ''','''        if (!rig.globals.present)
             Warn("portable authored runtime is using fallback dry mass");
 ''')
+
+# The workflow restores AuthoredVehicleRuntime.cpp from an older complete runtime
+# snapshot. The current header/app diagnostic API was added later, so provide the
+# missing definitions here instead of letting the iPhone link silently depend on
+# source history. EarlyDiagnostics synthesizes the stopped/current state so an
+# on-device blow-up still reports the worst node and beam.
+one('''    return telemetry;
+}
+
+} // namespace IOSVehicleCore
+} // namespace RoR
+''','''    return telemetry;
+}
+
+const std::vector<EarlyStepDiagnostics>& AuthoredVehicleRuntime::EarlyDiagnostics() const
+{
+    static thread_local std::vector<EarlyStepDiagnostics> diagnostics;
+    diagnostics.clear();
+    if (!m_impl || m_impl->nodes.empty())
+        return diagnostics;
+
+    EarlyStepDiagnostics d;
+    d.step = m_impl->physics_steps;
+
+    float worst_speed_sq = -1.0f;
+    for (std::size_t i = 0; i < m_impl->nodes.size(); ++i)
+    {
+        const NodeCoreState& node = m_impl->nodes[i];
+        const float speed_sq = node.velocity.squaredLength();
+        if (speed_sq > worst_speed_sq || !std::isfinite(speed_sq))
+        {
+            worst_speed_sq = speed_sq;
+            d.worst_node = i;
+            d.start_position = node.position;
+            d.position = node.position;
+            d.velocity = node.velocity;
+            d.force = node.force;
+            d.mass = node.mass;
+            d.displacement = 0.0f;
+            if (!std::isfinite(speed_sq)) break;
+        }
+    }
+
+    float worst_stress = -1.0f;
+    for (std::size_t i = 0; i < m_impl->beams.size(); ++i)
+    {
+        const auto& link = m_impl->beams[i];
+        const float magnitude = std::fabs(link.beam.stress);
+        if (magnitude > worst_stress || !std::isfinite(magnitude))
+        {
+            worst_stress = magnitude;
+            d.worst_beam = i;
+            d.beam_a = link.a;
+            d.beam_b = link.b;
+            d.beam_stress = link.beam.stress;
+            d.beam_length = Distance(m_impl->nodes[link.a].position, m_impl->nodes[link.b].position);
+            d.beam_rest_length = link.beam.rest_length;
+            d.beam_spring = link.beam.spring;
+            d.beam_damping = link.beam.damping;
+            if (!std::isfinite(magnitude)) break;
+        }
+    }
+
+    diagnostics.push_back(d);
+    return diagnostics;
+}
+
+const SpawnGroundDiagnostics& AuthoredVehicleRuntime::SpawnDiagnostics() const
+{
+    static thread_local SpawnGroundDiagnostics diagnostics;
+    diagnostics = SpawnGroundDiagnostics();
+    if (!m_impl || m_impl->nodes.empty())
+        return diagnostics;
+
+    diagnostics.min_node_y = diagnostics.max_node_y = m_impl->nodes.front().position.y;
+    diagnostics.min_node = 0;
+    for (std::size_t i = 1; i < m_impl->nodes.size(); ++i)
+    {
+        const float y = m_impl->nodes[i].position.y;
+        if (y < diagnostics.min_node_y)
+        {
+            diagnostics.min_node_y = y;
+            diagnostics.min_node = i;
+        }
+        diagnostics.max_node_y = std::max(diagnostics.max_node_y, y);
+    }
+
+    bool have_tire = false;
+    for (std::size_t i : m_impl->tire_nodes)
+    {
+        if (i >= m_impl->nodes.size()) continue;
+        const float y = m_impl->nodes[i].position.y;
+        if (!have_tire || y < diagnostics.min_tire_y)
+        {
+            diagnostics.min_tire_y = y;
+            diagnostics.min_tire = i;
+            have_tire = true;
+        }
+    }
+    if (have_tire)
+        diagnostics.max_penetration = std::max(0.0f, -diagnostics.min_tire_y);
+
+    if (m_impl->nodes.size() > 27)
+    {
+        diagnostics.node27_position = m_impl->nodes[27].position;
+        diagnostics.node27_is_tire = std::find(m_impl->tire_nodes.begin(), m_impl->tire_nodes.end(), 27) != m_impl->tire_nodes.end();
+        diagnostics.node27_is_contacter = std::find(m_impl->contact_nodes.begin(), m_impl->contact_nodes.end(), 27) != m_impl->contact_nodes.end();
+    }
+    return diagnostics;
+}
+
+const std::vector<NodeBeamDiagnostic>& AuthoredVehicleRuntime::Node27BeamDiagnostics() const
+{
+    static thread_local std::vector<NodeBeamDiagnostic> diagnostics;
+    diagnostics.clear();
+    if (!m_impl || m_impl->nodes.size() <= 27)
+        return diagnostics;
+
+    for (std::size_t i = 0; i < m_impl->beams.size(); ++i)
+    {
+        const auto& link = m_impl->beams[i];
+        if (link.a != 27 && link.b != 27) continue;
+        NodeBeamDiagnostic d;
+        d.beam = i;
+        d.other = link.a == 27 ? link.b : link.a;
+        d.initial_length = Distance(m_impl->nodes[link.a].position, m_impl->nodes[link.b].position);
+        d.rest_length = link.beam.rest_length;
+        d.spring = link.beam.spring;
+        d.damping = link.beam.damping;
+        d.initial_stress = link.beam.stress;
+        d.initial_force = std::fabs(link.beam.stress);
+        diagnostics.push_back(d);
+    }
+    return diagnostics;
+}
+
+} // namespace IOSVehicleCore
+} // namespace RoR
+''')
 p.write_text(s)
-print('applied upstream-compatible RoR mass, wheel direction, and drivetrain parity')
+print('applied upstream-compatible RoR mass, wheel direction, drivetrain, and diagnostic parity')
