@@ -18,6 +18,12 @@ struct TexturedRasterizerData
     vec2 uv;
 };
 
+struct FlexRasterizerData
+{
+    vec4 pos [[position]];
+    vec2 uv;
+};
+
 struct TerrainRasterizerData
 {
     vec4 pos [[position]];
@@ -39,6 +45,15 @@ struct TexturedVertex
 {
     IN(vec3 pos, POSITION);
     IN(vec4 colour, COLOR0);
+    IN(vec2 uv, TEXCOORD0);
+};
+
+// Authored RoR .mesh flexbodies carry positions, normals and UVs but generally
+// no vertex-colour stream. Keep a distinct input layout rather than asking the
+// DAF collision-cab shader for COLOR0 that the flexbody mesh never authored.
+struct FlexVertex
+{
+    IN(vec3 pos, POSITION);
     IN(vec2 uv, TEXCOORD0);
 };
 
@@ -125,10 +140,8 @@ fragment half4 ror_vehicle_fp(TexturedRasterizerData in [[stage_in]],
                               metal::sampler diffuse_sampler [[sampler(0)]])
 {
     const half4 texel = diffuse_map.sample(diffuse_sampler, in.uv);
-
     if (texel.a <= ROR_ALPHA_REJECT)
         metal::discard_fragment();
-
     return texel * half4(in.colour);
 }
 
@@ -137,4 +150,23 @@ fragment half4 ror_vehicle_emissive_fp(TexturedRasterizerData in [[stage_in]],
                                        metal::sampler emissive_sampler [[sampler(0)]])
 {
     return emissive_map.sample(emissive_sampler, in.uv);
+}
+
+vertex FlexRasterizerData ror_flex_vp(FlexVertex in [[stage_in]],
+                                      constant Uniform& u [[buffer(UNIFORM_INDEX_START)]])
+{
+    FlexRasterizerData out;
+    out.pos = u.mvpMtx * vec4(in.pos, 1.0);
+    out.uv = in.uv;
+    return out;
+}
+
+fragment half4 ror_flex_fp(FlexRasterizerData in [[stage_in]],
+                           metal::texture2d<half> diffuse_map [[texture(0)]],
+                           metal::sampler diffuse_sampler [[sampler(0)]])
+{
+    const half4 texel = diffuse_map.sample(diffuse_sampler, in.uv);
+    if (texel.a <= ROR_ALPHA_REJECT)
+        metal::discard_fragment();
+    return texel;
 }
