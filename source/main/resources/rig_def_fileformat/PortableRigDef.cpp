@@ -444,15 +444,13 @@ Document Parse(const std::string& text)
                 break;
 
             case Section::MeshWheels2:
-                // Upstream meshwheels2 syntax:
-                // tyre_radius,rim_radius,width,num_rays,node1,node2,rigidity,braked,propulsed,
-                // arm,mass,tyre_spring,tyre_damping,side,mesh,material
-                // Rim beams use the active set_beam_defaults values; tyre tread beams use
-                // the explicit spring/damping pair from this line.
+                // Unlike wheels2, upstream meshwheels2 uses the simple two-nodes-per-ray
+                // wheel topology. The rim radius is visual metadata; physical nodes live at
+                // tyre_radius. The active beam defaults stiffen only the ring reinforcement.
                 if (tokens.size() >= 16)
                 {
                     Wheel wheel;
-                    wheel.wheels2 = true;
+                    wheel.wheels2 = false;
                     wheel.tire_radius = F(tokens[0]);
                     wheel.rim_radius = F(tokens[1]);
                     wheel.width = F(tokens[2]);
