@@ -1,21 +1,11 @@
 name: iOS vehicle core
-
 on:
   push:
     branches: [ ios-port ]
-    paths:
-      - 'source/main/physics/**'
-      - 'source/main/resources/rig_def_fileformat/**'
-      - 'platform/ios/**'
-      - '.github/workflows/ios-vehicle-core.yml'
+    paths: ['source/main/physics/**','source/main/resources/rig_def_fileformat/**','platform/ios/**','.github/workflows/ios-vehicle-core.yml']
   pull_request:
-    paths:
-      - 'source/main/physics/**'
-      - 'source/main/resources/rig_def_fileformat/**'
-      - 'platform/ios/**'
-      - '.github/workflows/ios-vehicle-core.yml'
+    paths: ['source/main/physics/**','source/main/resources/rig_def_fileformat/**','platform/ios/**','.github/workflows/ios-vehicle-core.yml']
   workflow_dispatch:
-
 jobs:
   vehicle-core:
     name: RoR physics + OGRE Metal game view / iPhone ARM64
@@ -23,74 +13,38 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
+        with: { fetch-depth: 0 }
       - name: Restore complete authored runtime
-        run: |
-          git show 20e3ce1299bad39f397fac7fe414e699cf9bad81:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
-
+        run: git show 20e3ce1299bad39f397fac7fe414e699cf9bad81:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
       - name: Toolchain info
         run: |
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-path
           clang++ --version
-
       - name: Verify pinned authored fixture
         run: |
           test -s platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
           grep -q '^Daf Semi truck$' platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
-
-      - name: Build and run baseline native behavior probes
+      - name: Build and run native conformance probes
         run: |
           cmake -S platform/ios/vehicle-core -B build/vehicle-core-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build/vehicle-core-native --config Release
           ctest --test-dir build/vehicle-core-native --output-on-failure
-
-      - name: Apply upstream minimass parity for iPhone experiment
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp')
-          s=p.read_text()
-          old='node.mass = std::max(mass, 0.25f);'
-          assert s.count(old)==1, 'expected exactly one portable minimass floor'
-          s=s.replace(old, 'node.mass = std::max(mass, DEFAULT_MINIMASS); // upstream RoR stability floor')
-          p.write_text(s)
-          PY
-          grep -n 'DEFAULT_MINIMASS' platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
-
       - name: Verify authored OGRE visual extraction
         run: |
           mkdir -p build/ogre-visual-probe
           clang++ -std=c++17 -O2 -Isource/main/resources/rig_def_fileformat -Iplatform/ios/ogre platform/ios/ogre/AuthoredVisualGeometry.cpp source/main/resources/rig_def_fileformat/PortableRigDef.cpp platform/ios/ogre/VisualGeometryProbe.cpp -o build/ogre-visual-probe/visual_geometry_probe
           build/ogre-visual-probe/visual_geometry_probe platform/ios/vehicle-core/fixtures/dafsemi/b6b0UID-semi.truck
-
-      - name: Cross-compile minimass-parity RoR vehicle physics for iPhone
+      - name: Cross-compile vehicle core for iPhone
         run: |
           cmake -S platform/ios/vehicle-core -B build/vehicle-core-ios -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=16.0 -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF
           cmake --build build/vehicle-core-ios --config Release
-
       - name: Build pinned OGRE 14 Metal for iPhone
         run: bash platform/ios/ogre/build-ogre-ios.sh
-
       - name: Cross-compile upstream RoR RigDef for iPhone
         run: bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
-
-      - name: Build unsigned OGRE game-view iPhone IPA with physics HUD
-        run: |
-          cp platform/ios/app/prepare_audio_game_source.py build/prepare_audio_game_source.py.orig
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('platform/ios/app/build-ipa.sh')
-          s=p.read_text()
-          anchor='python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \\\n    "$ROOT/platform/ios/app/OgreGameApp.mm" "$AUDIO_GAME_SRC"\n'
-          replacement=anchor+'python3 "$ROOT/platform/ios/app/apply_physics_debug.py" "$AUDIO_GAME_SRC"\n'
-          assert s.count(anchor)==1, 'build-ipa prepare source anchor drifted'
-          p.write_text(s.replace(anchor,replacement,1))
-          PY
-          platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
-
+      - name: Build unsigned OGRE game-view iPhone IPA
+        run: platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
       - name: Verify OGRE IPA bundle
         run: |
           test -f build/ios-app/RoRIOSProbe.ipa
@@ -98,27 +52,14 @@ jobs:
           unzip -q build/ios-app/RoRIOSProbe.ipa -d build/ipa-verify
           APP=build/ipa-verify/Payload/RoRIOSProbe.app
           test -f "$APP/RoRIOSProbe"
-          file "$APP/RoRIOSProbe"
           lipo -info "$APP/RoRIOSProbe" | grep -q arm64
           plutil -lint "$APP/Info.plist"
-
       - name: Upload unsigned OGRE game-view iPhone IPA
         uses: actions/upload-artifact@v4
-        with:
-          name: ror-ios-ogre-gameview-ipa
-          path: build/ios-app/RoRIOSProbe.ipa
-          if-no-files-found: error
-
+        with: { name: ror-ios-ogre-gameview-ipa, path: build/ios-app/RoRIOSProbe.ipa, if-no-files-found: error }
       - name: Upload iPhone vehicle-core library
         uses: actions/upload-artifact@v4
-        with:
-          name: ror-vehicle-core-ios-arm64
-          path: build/vehicle-core-ios/**/libror_vehicle_core.a
-          if-no-files-found: error
-
+        with: { name: ror-vehicle-core-ios-arm64, path: 'build/vehicle-core-ios/**/libror_vehicle_core.a', if-no-files-found: error }
       - name: Upload native RoR RigDef library
         uses: actions/upload-artifact@v4
-        with:
-          name: ror-native-rigdef-ios-arm64
-          path: build/ror-native-rigdef-ios/libror_native_rigdef.a
-          if-no-files-found: error
+        with: { name: ror-native-rigdef-ios-arm64, path: build/ror-native-rigdef-ios/libror_native_rigdef.a, if-no-files-found: error }
