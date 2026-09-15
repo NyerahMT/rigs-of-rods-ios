@@ -4,9 +4,28 @@ import sys
 p=Path(sys.argv[1]);s=p.read_text()
 def one(old,new):
  global s
- if s.count(old)!=1: raise SystemExit('runtime parity anchor drifted: '+old[:60])
+ if s.count(old)!=1: raise SystemExit('runtime parity anchor drifted: '+old[:80])
  s=s.replace(old,new,1)
-one('#include "PortableRigDef.h"\n','#include "PortableRigDef.h"\n#include "RoRMassDistribution.h"\n')
+
+one('#include "PortableRigDef.h"\n','#include "PortableRigDef.h"\n#include "RoRMassDistribution.h"\n#include "RoRDrivetrain.h"\n')
+one('''    GroundContactParams road;
+
+    float steering = 0.0f;
+''','''    GroundContactParams road;
+    RoRDrivetrain drivetrain;
+
+    float steering = 0.0f;
+''')
+one('''        fixture.braking = def.braking;
+        fixture.propulsion = def.propulsion;
+        fixture.reference_arm = ResolveNode(def.reference_arm_node);
+''','''        fixture.braking = def.braking;
+        fixture.propulsion = def.propulsion;
+        // RoR::CalcWheels reverses radius only for WheelPropulsion::BACKWARD
+        // (numeric truck-file value 2). Do not infer torque direction from mesh geometry.
+        fixture.wheel.reverse_rotation = (def.propulsion == 2);
+        fixture.reference_arm = ResolveNode(def.reference_arm_node);
+''')
 one('''        float dry_mass = rig.globals.present ? rig.globals.dry_mass : 0.0f;
         if (dry_mass <= 0.0f)
         {
@@ -20,6 +39,19 @@ one('''        float dry_mass = rig.globals.present ? rig.globals.dry_mass : 0.0
             dry_mass = static_cast<float>(rig.nodes.size()) * 50.0f;
             Warn("vehicle has no usable globals dry mass; using portable fallback mass");
         }
+
+        RoRDrivetrainConfig drivetrain_config;
+        if (rig.engine.present)
+        {
+            drivetrain_config.shift_down_rpm = rig.engine.shift_down_rpm;
+            drivetrain_config.shift_up_rpm = rig.engine.shift_up_rpm;
+            drivetrain_config.engine_torque = rig.engine.torque;
+            drivetrain_config.differential_ratio = rig.engine.differential_ratio;
+            drivetrain_config.reverse_gear_ratio = rig.engine.reverse_gear_ratio;
+            drivetrain_config.neutral_gear_ratio = rig.engine.neutral_gear_ratio;
+            drivetrain_config.forward_gears = rig.engine.gear_ratios;
+        }
+        drivetrain.Configure(drivetrain_config);
 ''')
 one('AddNode(PhysicsVec3(source.x, source.y, source.z), authored_node_mass);','AddNode(PhysicsVec3(source.x, source.y, source.z), 1.0f);')
 anchor='''        for (const PortableRigDef::Wheel& source : rig.wheels)
@@ -65,11 +97,44 @@ insert='''        for (const PortableRigDef::Wheel& source : rig.wheels)
             dry_mass, rig.globals.present ? rig.globals.load_mass : 0.0f,
             mass_nodes, mass_beams, false);
         if (distributed.masses.size() == nodes.size())
-            for (std::size_t i = 0; i < nodes.size(); ++i) nodes[i].mass = distributed.masses[i];
+        {
+            for (std::size_t i = 0; i < nodes.size(); ++i)
+            {
+                nodes[i].mass = distributed.masses[i];
+                // AddNode seeded gravity using temporary construction mass; refresh it.
+                nodes[i].force = PhysicsVec3(0.0f, nodes[i].mass * DEFAULT_GRAVITY, 0.0f);
+            }
+        }
 
         if (wheels.empty())
 '''
 one(anchor,insert)
+one('''        AlignTiresToGround();
+        ConfigureWheelDirections();
+''','''        AlignTiresToGround();
+''')
+one('''        const float authored_engine_torque = rig.engine.present ? std::fabs(rig.engine.torque) : 1200.0f;
+        const float total_drive_torque = std::min(authored_engine_torque, 8000.0f) * throttle_state * 0.55f;
+        const float per_driven_torque = driven_count > 0
+            ? total_drive_torque / static_cast<float>(driven_count)
+            : 0.0f;
+        const float service_force = rig.brakes.present ? std::max(0.0f, rig.brakes.service_force) : 30000.0f;
+''','''        float driven_wheel_rpm = 0.0f;
+        if (driven_count > 0)
+        {
+            for (const WheelFixture& fixture : wheels)
+            {
+                if (fixture.propulsion != 0 && fixture.wheel.radius > 1.0e-6f)
+                    driven_wheel_rpm += (fixture.wheel.speed / fixture.wheel.radius) * RAD_PER_SEC_TO_RPM;
+            }
+            driven_wheel_rpm /= static_cast<float>(driven_count);
+        }
+        drivetrain.Step(throttle_state, driven_wheel_rpm, dt);
+        const float per_driven_torque = driven_count > 0
+            ? drivetrain.OutputTorque() / static_cast<float>(driven_count)
+            : 0.0f;
+        const float service_force = rig.brakes.present ? std::max(0.0f, rig.brakes.service_force) : 30000.0f;
+''')
 one('''        if (!rig.globals.present)
             Warn("portable authored runtime is using fallback mass distribution");
         else
@@ -78,4 +143,4 @@ one('''        if (!rig.globals.present)
             Warn("portable authored runtime is using fallback dry mass");
 ''')
 p.write_text(s)
-print('applied upstream-compatible RoR node mass distribution')
+print('applied upstream-compatible RoR mass, wheel direction, and drivetrain parity')
