@@ -16,6 +16,26 @@ one('''    GroundContactParams road;
 
     float steering = 0.0f;
 ''')
+one('''        const float spring = def.tire_spring > 0.0f ? def.tire_spring : 200000.0f;
+        const float damping = def.tire_damping > 0.0f ? def.tire_damping : 2500.0f;
+''','''        const float spring = def.tire_spring > 0.0f ? def.tire_spring : 200000.0f;
+        const float damping = def.tire_damping > 0.0f ? def.tire_damping : 2500.0f;
+        // Upstream meshwheels2 shares the simple two-node-per-ray topology.
+        // Its spoke beams use tyre spring/damping while the ring reinforcement
+        // uses the active set_beam_defaults values carried in rim_*.
+        const float ring_spring = def.rim_spring > 0.0f ? def.rim_spring : spring;
+        const float ring_damping = def.rim_damping > 0.0f ? def.rim_damping : damping;
+''')
+one('''            AddBeam(side0, next0, spring, damping, BeamKind::Wheel);
+            AddBeam(side1, next1, spring, damping, BeamKind::Wheel);
+            AddBeam(side0, side1, spring, damping, BeamKind::Wheel);
+            AddBeam(side0, next1, spring, damping, BeamKind::Wheel);
+''','''            AddBeam(side0, next0, ring_spring, ring_damping, BeamKind::Wheel);
+            AddBeam(side1, next1, ring_spring, ring_damping, BeamKind::Wheel);
+            AddBeam(side0, side1, ring_spring, ring_damping, BeamKind::Wheel);
+            // Match ActorSpawner::BuildWheelBeams(): inner ring -> next outer ring.
+            AddBeam(side1, next0, ring_spring, ring_damping, BeamKind::Wheel);
+''')
 one('''        fixture.braking = def.braking;
         fixture.propulsion = def.propulsion;
         fixture.reference_arm = ResolveNode(def.reference_arm_node);
@@ -143,4 +163,4 @@ one('''        if (!rig.globals.present)
             Warn("portable authored runtime is using fallback dry mass");
 ''')
 p.write_text(s)
-print('applied upstream-compatible RoR mass, wheel direction, and drivetrain parity')
+print('applied upstream-compatible RoR mass, wheel direction, topology, and drivetrain parity')
