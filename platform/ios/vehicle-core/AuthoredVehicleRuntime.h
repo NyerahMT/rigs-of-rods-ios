@@ -35,6 +35,26 @@ struct AuthoredVehicleTelemetry
     std::uint64_t physics_steps = 0;
 };
 
+struct EarlyStepDiagnostics
+{
+    std::uint64_t step = 0;
+    std::size_t worst_node = static_cast<std::size_t>(-1);
+    PhysicsVec3 start_position;
+    PhysicsVec3 position;
+    PhysicsVec3 velocity;
+    PhysicsVec3 force;
+    float mass = 0.0f;
+    float displacement = 0.0f;
+    std::size_t worst_beam = static_cast<std::size_t>(-1);
+    std::size_t beam_a = static_cast<std::size_t>(-1);
+    std::size_t beam_b = static_cast<std::size_t>(-1);
+    float beam_stress = 0.0f;
+    float beam_length = 0.0f;
+    float beam_rest_length = 0.0f;
+    float beam_spring = 0.0f;
+    float beam_damping = 0.0f;
+};
+
 class AuthoredVehicleRuntime
 {
 public:
@@ -59,6 +79,7 @@ public:
     const std::vector<std::pair<std::size_t, std::size_t>>& BeamPairs() const;
     const std::vector<std::size_t>& TireNodeIndices() const;
     AuthoredVehicleTelemetry Telemetry() const;
+    const std::vector<EarlyStepDiagnostics>& EarlyDiagnostics() const;
 
 private:
     struct Impl;
