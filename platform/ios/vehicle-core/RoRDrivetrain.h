@@ -17,6 +17,9 @@ struct RoRDrivetrainConfig
     // Defaults from RoR::Engine when no engoption overrides are authored.
     float engine_inertia = 10.0f;
     float clutch_force = 10000.0f;
+    float shift_time = 0.5f;
+    float clutch_time = 0.2f;
+    float post_shift_time = 0.2f;
     float stall_rpm = 300.0f;
     float max_idle_mixture = 0.1f;
     float min_idle_mixture = 0.0f;
