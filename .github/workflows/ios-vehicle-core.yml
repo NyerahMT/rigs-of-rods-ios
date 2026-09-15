@@ -75,10 +75,9 @@ jobs:
           test -s "$DST/Bandit.truck"
           grep -q '^Gavril Bandit 400 GT$' "$DST/Bandit.truck"
 
-          # OGRE/Metal on iOS cannot sample the legacy DXT/BC DDS files used by
-          # Gabester's pack. Preserve filenames/material references, but transcode
-          # every DXT1/3/5 texture to the same BGRA8 DDS representation used by
-          # the already-working DAF and Simple2 resources.
+          # Normalize only legacy DXT/BC textures if this archived package ever
+          # ships them. Current Bandit releases are already largely BGRA8 DDS, so
+          # zero conversions is valid; the critical-texture checks below are the gate.
           python3 - "$DST" platform/ios/ogre/transcode_dxt_dds_for_ios.py <<'PY'
           from pathlib import Path
           import subprocess
@@ -97,8 +96,6 @@ jobs:
               temp.replace(path)
               converted += 1
           print(f'Bandit iOS DDS transcoded: {converted}')
-          if converted == 0:
-              raise SystemExit('expected at least one compressed Bandit DDS texture')
           PY
 
           # The iOS audio bridge consumes the vehicle's actual soundscript and GT
@@ -110,7 +107,7 @@ jobs:
           grep -q 'banditv8GTEngineAcc' "$DST/Bandit.truck"
           grep -q 'banditStarter' "$DST/Bandit.truck"
 
-          # Critical managed-material diffuse maps must now be uncompressed BGRA8.
+          # Critical managed-material diffuse maps must be uncompressed BGRA8.
           python3 - "$DST" <<'PY'
           from pathlib import Path
           import struct
