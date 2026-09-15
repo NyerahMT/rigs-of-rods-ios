@@ -7,6 +7,7 @@
 
 #include "BeamPhysics.h"
 #include "ApproxMath.h"
+#include "SimConstants.h"
 
 #include <cmath>
 
@@ -35,7 +36,28 @@ void ApplyBeamForce(NodeCoreState& node1, NodeCoreState& node2, BeamCoreState& b
     const float length_error = length - beam.rest_length;
     const float relative_speed = (node1.velocity - node2.velocity).dot(displacement) * inverse_length;
 
-    beam.stress = CalcBeamStress(length_error, relative_speed, beam.spring, beam.damping);
+    float spring = beam.spring;
+    float damping = beam.damping;
+
+    // Generated RoR wheel spokes are SHOCK1-bounded beams. Actor::CalcBeams()
+    // leaves the authored wheel spring/damper active inside the bounds and,
+    // once a bound is exceeded, interpolates toward the normal beam defaults.
+    if (beam.bounded)
+    {
+        float interp_ratio = 0.0f;
+        if (length_error > beam.longbound * beam.rest_length)
+            interp_ratio = length_error - beam.longbound * beam.rest_length;
+        else if (length_error < -beam.shortbound * beam.rest_length)
+            interp_ratio = -length_error - beam.shortbound * beam.rest_length;
+
+        if (interp_ratio != 0.0f)
+        {
+            spring += (DEFAULT_SPRING - spring) * interp_ratio;
+            damping += (DEFAULT_DAMP - damping) * interp_ratio;
+        }
+    }
+
+    beam.stress = CalcBeamStress(length_error, relative_speed, spring, damping);
 
     const PhysicsVec3 force = displacement * (beam.stress * inverse_length);
     node1.force += force;
