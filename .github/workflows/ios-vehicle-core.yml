@@ -32,6 +32,19 @@ jobs:
           cmake -S platform/ios/vehicle-core -B build/vehicle-core-native -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
           cmake --build build/vehicle-core-native --config Release
           ctest --test-dir build/vehicle-core-native --output-on-failure
+      - name: Fetch fast archived RoR reference car
+        run: bash platform/ios/app/fetch-gabester-bandit.sh build/gabester-bandit-resource
+      - name: Exercise fast archived RoR reference car
+        run: |
+          mapfile -t VEHICLES < <(find build/gabester-bandit-resource/extracted -type f \( -iname '*.truck' -o -iname '*.car' \) -print | sort)
+          test ${#VEHICLES[@]} -gt 0
+          TARGET=""
+          for V in "${VEHICLES[@]}"; do
+            if grep -Eiq 'Bandit (Extreme|400)|400 ?GT|Extreme' "$V"; then TARGET="$V"; break; fi
+          done
+          if [[ -z "$TARGET" ]]; then TARGET="${VEHICLES[0]}"; fi
+          echo "Fast reference target: $TARGET"
+          build/vehicle-core-native/ror_authored_vehicle_smoke "$TARGET"
       - name: Verify authored OGRE visual extraction
         run: |
           mkdir -p build/ogre-visual-probe
