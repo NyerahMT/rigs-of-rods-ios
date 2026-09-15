@@ -9,7 +9,12 @@ namespace IOSAudio {
 class EngineAudio
 {
 public:
-    explicit EngineAudio(const std::string& resource_directory);
+    // `truck_text` is used to select only soundscript blocks actually referenced
+    // by the authored vehicle's soundsources section. This keeps one generic iOS
+    // audio path usable by stock/community RoR vehicles instead of hardcoding a car.
+    EngineAudio(const std::string& resource_directory,
+                const std::string& soundscript_filename,
+                const std::string& truck_text);
     ~EngineAudio();
 
     EngineAudio(const EngineAudio&) = delete;
@@ -21,11 +26,8 @@ public:
     void Stop();
     void PlayStarter();
 
-    // The portable vehicle core does not yet carry desktop RoR's clutch/gearbox
-    // state. For the sound-system bring-up, infer a smooth engine RPM from the
-    // driven-wheel speed plus throttle, while preserving the actual soundscript
-    // RPM anchors. This function can later accept drivetrain RPM directly.
-    void UpdateFromVehicle(float driven_wheel_speed_mps, float throttle);
+    // RPM comes from the same drivetrain state that produces wheel torque.
+    void UpdateFromEngine(float engine_rpm, float throttle);
 
 private:
     struct Impl;
