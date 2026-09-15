@@ -39,19 +39,42 @@ struct LayerDefinition
     std::string filename;
 };
 
+struct SourceDefinition
+{
+    std::string name;
+    std::string trigger_source;
+    std::vector<LayerDefinition> layers;
+    std::string start_sound;
+};
+
 struct ScriptDefinition
 {
     std::vector<LayerDefinition> layers;
     std::string starter;
+    std::string engine_source;
+    std::string starter_source;
 };
 
-ScriptDefinition ParseSoundScript(const std::string& path)
+bool ReferencedByVehicle(const std::string& truck_text, const std::string& source_name)
+{
+    if (source_name.empty()) return false;
+    // RoR soundsources entries contain the soundscript source name literally.
+    // Matching the complete identifier is sufficient here and avoids inventing a
+    // second incomplete RigDef parser in the audio layer.
+    return truck_text.find(source_name) != std::string::npos;
+}
+
+ScriptDefinition ParseSoundScript(const std::string& path, const std::string& truck_text)
 {
     std::ifstream input(path);
     if (!input) throw std::runtime_error("cannot open RoR soundscript: " + path);
 
-    ScriptDefinition result;
+    std::vector<SourceDefinition> sources;
+    SourceDefinition current;
+    std::string pending_name;
+    bool in_block = false;
     std::string line;
+
     while (std::getline(input, line))
     {
         const std::size_t comment = line.find_first_of(";#");
@@ -59,27 +82,108 @@ ScriptDefinition ParseSoundScript(const std::string& path)
         line = Trim(line);
         if (line.empty()) continue;
 
+        if (!in_block)
+        {
+            if (line == "{")
+            {
+                if (!pending_name.empty())
+                {
+                    current = SourceDefinition();
+                    current.name = pending_name;
+                    pending_name.clear();
+                    in_block = true;
+                }
+                continue;
+            }
+            const std::size_t brace = line.find('{');
+            if (brace != std::string::npos)
+            {
+                current = SourceDefinition();
+                current.name = Trim(line.substr(0, brace));
+                in_block = !current.name.empty();
+                continue;
+            }
+            pending_name = line;
+            continue;
+        }
+
+        if (line == "}")
+        {
+            if (!current.name.empty()) sources.push_back(current);
+            current = SourceDefinition();
+            in_block = false;
+            continue;
+        }
+
         std::istringstream stream(line);
         std::string keyword;
         stream >> keyword;
-        if (keyword == "sound")
+        if (keyword == "trigger_source")
+        {
+            stream >> current.trigger_source;
+        }
+        else if (keyword == "sound")
         {
             LayerDefinition layer;
             if (stream >> layer.reference_rpm >> layer.filename && layer.reference_rpm > 0.0f)
-                result.layers.push_back(std::move(layer));
+                current.layers.push_back(std::move(layer));
         }
         else if (keyword == "start_sound")
         {
             std::string mode;
-            stream >> mode >> result.starter;
+            stream >> mode >> current.start_sound;
         }
     }
+    if (in_block && !current.name.empty()) sources.push_back(current);
 
+    const SourceDefinition* engine_source = nullptr;
+    const SourceDefinition* starter_source = nullptr;
+    for (const SourceDefinition& source : sources)
+    {
+        if (!ReferencedByVehicle(truck_text, source.name)) continue;
+        if (!engine_source && source.trigger_source == "engine" && !source.layers.empty())
+            engine_source = &source;
+        if (!starter_source && source.trigger_source == "starter" && !source.start_sound.empty())
+            starter_source = &source;
+    }
+    // Old/simple vehicles sometimes omit soundsources but ship only one engine
+    // block. Retain a safe compatibility fallback while preferring authored refs.
+    if (!engine_source)
+    {
+        for (const SourceDefinition& source : sources)
+        {
+            if (source.trigger_source == "engine" && !source.layers.empty())
+            {
+                engine_source = &source;
+                break;
+            }
+        }
+    }
+    if (!starter_source)
+    {
+        for (const SourceDefinition& source : sources)
+        {
+            if (source.trigger_source == "starter" && !source.start_sound.empty())
+            {
+                starter_source = &source;
+                break;
+            }
+        }
+    }
+    if (!engine_source)
+        throw std::runtime_error("RoR soundscript has no referenced engine RPM source");
+
+    ScriptDefinition result;
+    result.layers = engine_source->layers;
+    result.engine_source = engine_source->name;
+    if (starter_source)
+    {
+        result.starter = starter_source->start_sound;
+        result.starter_source = starter_source->name;
+    }
     std::sort(result.layers.begin(), result.layers.end(), [](const LayerDefinition& a, const LayerDefinition& b) {
         return a.reference_rpm < b.reference_rpm;
     });
-    if (result.layers.empty())
-        throw std::runtime_error("RoR soundscript has no engine RPM layers");
     return result;
 }
 
@@ -104,13 +208,16 @@ struct EngineAudio::Impl
     bool running = false;
     float smoothed_rpm = 700.0f;
 
-    explicit Impl(const std::string& resource_directory): directory(resource_directory)
+    Impl(const std::string& resource_directory,
+         const std::string& soundscript_filename,
+         const std::string& truck_text): directory(resource_directory)
     {
         @autoreleasepool
         {
             try
             {
-                const ScriptDefinition script = ParseSoundScript(JoinPath(directory, "351Wmustang.soundscript"));
+                const ScriptDefinition script = ParseSoundScript(
+                    JoinPath(directory, soundscript_filename), truck_text);
                 engine = [[AVAudioEngine alloc] init];
 
                 NSError* session_error = nil;
@@ -190,7 +297,6 @@ struct EngineAudio::Impl
             error = start_error ? start_error.localizedDescription.UTF8String : "AVAudioEngine failed to start";
             return;
         }
-
         for (Layer& layer : layers)
         {
             [layer.player scheduleBuffer:layer.buffer atTime:nil options:AVAudioPlayerNodeBufferLoops completionHandler:nil];
@@ -215,34 +321,21 @@ struct EngineAudio::Impl
         [starter_player play];
     }
 
-    void UpdateFromVehicle(float driven_speed_mps, float throttle)
+    void UpdateFromEngine(float engine_rpm, float throttle)
     {
         if (!running || layers.empty()) return;
         throttle = Clamp(throttle, 0.0f, 1.0f);
-
         const float idle = layers.front().reference_rpm;
-        const float redline = layers.back().reference_rpm;
-
-        // Temporary clutch/gearbox approximation for the portable core. This is
-        // deliberately on the audio side only: it never changes vehicle forces.
-        // Five broad speed bands keep RPM climbing through the source recordings
-        // while throttle still allows a convincing free-rev at parking speeds.
-        const float speed = std::fabs(driven_speed_mps);
-        const float band_width = 11.0f;
-        const int gear = std::max(1, std::min(5, static_cast<int>(speed / band_width) + 1));
-        const float speed_in_band = speed - static_cast<float>(gear - 1) * band_width;
-        float target = idle + Clamp(speed_in_band / band_width, 0.0f, 1.0f) * (redline - idle) * 0.92f;
-        if (speed < 2.0f)
-            target = std::max(target, idle + throttle * (redline - idle) * 0.68f);
-        target = Clamp(target, idle, redline * 1.03f);
-        smoothed_rpm += (target - smoothed_rpm) * 0.16f;
+        const float highest_anchor = layers.back().reference_rpm;
+        const float target = std::max(idle, engine_rpm);
+        smoothed_rpm += (target - smoothed_rpm) * 0.22f;
 
         std::vector<float> weights(layers.size(), 0.0f);
         if (layers.size() == 1)
             weights[0] = 1.0f;
         else if (smoothed_rpm <= layers.front().reference_rpm)
             weights.front() = 1.0f;
-        else if (smoothed_rpm >= layers.back().reference_rpm)
+        else if (smoothed_rpm >= highest_anchor)
             weights.back() = 1.0f;
         else
         {
@@ -260,26 +353,29 @@ struct EngineAudio::Impl
             }
         }
 
-        const float load_gain = 0.72f + throttle * 0.28f;
+        const float load_gain = 0.70f + throttle * 0.30f;
         for (std::size_t i = 0; i < layers.size(); ++i)
         {
             Layer& layer = layers[i];
-            layer.varispeed.rate = Clamp(smoothed_rpm / std::max(1.0f, layer.reference_rpm), 0.55f, 1.75f);
+            layer.varispeed.rate = Clamp(smoothed_rpm / std::max(1.0f, layer.reference_rpm), 0.50f, 1.90f);
             layer.player.volume = Clamp(weights[i] * load_gain, 0.0f, 1.0f);
         }
     }
 };
 
-EngineAudio::EngineAudio(const std::string& resource_directory): m_impl(new Impl(resource_directory)) {}
+EngineAudio::EngineAudio(const std::string& resource_directory,
+                         const std::string& soundscript_filename,
+                         const std::string& truck_text)
+    : m_impl(new Impl(resource_directory, soundscript_filename, truck_text)) {}
 EngineAudio::~EngineAudio() { if (m_impl) m_impl->Stop(); }
 bool EngineAudio::Ready() const { return m_impl && m_impl->engine && !m_impl->layers.empty() && m_impl->error.empty(); }
 const std::string& EngineAudio::Error() const { return m_impl->error; }
 void EngineAudio::Start() { if (m_impl) m_impl->Start(); }
 void EngineAudio::Stop() { if (m_impl) m_impl->Stop(); }
 void EngineAudio::PlayStarter() { if (m_impl) m_impl->PlayStarter(); }
-void EngineAudio::UpdateFromVehicle(float driven_wheel_speed_mps, float throttle)
+void EngineAudio::UpdateFromEngine(float engine_rpm, float throttle)
 {
-    if (m_impl) m_impl->UpdateFromVehicle(driven_wheel_speed_mps, throttle);
+    if (m_impl) m_impl->UpdateFromEngine(engine_rpm, throttle);
 }
 
 } // namespace IOSAudio
