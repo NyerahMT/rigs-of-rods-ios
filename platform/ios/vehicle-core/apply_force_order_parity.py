@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Move portable ground contact to the same force phase as upstream RoR.
+"""Match the portable iOS step ordering to RoR's Euler force pipeline.
 
-Upstream CalcForcesEulerCompute() starts with CalcNodes(); groundCollision() runs
-there against the force accumulator produced by the previous force phase.  The
-rest of that compute pass then runs wheels, shocks, hydros and beams to produce
-the next accumulator.
+Desktop RoR does *not* calculate a fresh set of beam/wheel forces and integrate
+those forces in the same call. Actor::CalcForcesEulerCompute() begins with
+CalcNodes(): groundCollision() augments the force accumulator left by the
+previous physics pass, the node is integrated, and its accumulator is reset to
+gravity. Only after that do CalcDifferentials(), CalcWheels(), CalcShocks(),
+CalcHydros() and CalcBeams() populate the accumulator for the *next* 0.5 ms pass.
 
-The portable runtime previously called ground contact at the start of a step
-while the accumulator contained gravity only, then added wheel/suspension/beam
-forces and immediately integrated.  Because primitiveCollision's static/sliding
-friction decision explicitly reads node->Forces, this made normal load and slip
-force blind to the suspension and drive forces that actually load the tyre.
+That one-step force phase is important here because primitiveCollision() reads
+node->Forces when it decides static-vs-sliding friction. The previous portable
+runtime either saw gravity only or, after an earlier parity attempt, fed contact
+the just-computed wheel/beam forces and integrated them immediately. Neither is
+RoR's solver and both can create an artificial contact/traction feedback loop.
 
-For our single-phase portable integrator the equivalent ordering is: accumulate
-wheel/suspension/beam forces -> resolve ground contact from that complete force
-state -> integrate/reset nodes.
+This transform keeps ground contact at the beginning of StepInternal(), moves
+node integration/reset directly behind it, and leaves wheel/suspension/beam
+force accumulation at the end for the next step.
 """
 from pathlib import Path
 import sys
@@ -25,42 +27,45 @@ if len(sys.argv) != 2:
 p = Path(sys.argv[1])
 s = p.read_text()
 
-old_front = '''        // Ground contact for generated tire nodes plus explicitly authored contacters.
+contact = '''        // Ground contact for generated tire nodes plus explicitly authored contacters.
         for (std::size_t index : tire_nodes)
             ApplyFlatGroundContact(nodes[index], 0.0f, road, dt);
         for (std::size_t index : contact_nodes)
             ApplyFlatGroundContact(nodes[index], 0.0f, road, dt);
 
 '''
-new_front = '''        // Match RoR's force phasing: ground contact is resolved only after the
-        // wheel/suspension/beam force accumulator for this integration step is complete.
 
-'''
-if new_front not in s:
-    if s.count(old_front) != 1:
-        raise SystemExit(f"force-order front contact anchor expected once, found {s.count(old_front)}")
-    s = s.replace(old_front, new_front, 1)
-
-old_integrate = '''        for (NodeCoreState& node : nodes)
+integrate = '''        for (NodeCoreState& node : nodes)
         {
             IntegrateNode(node, DEFAULT_GRAVITY, dt);
+            if (!Finite(node.position) || !Finite(node.velocity) || node.velocity.squaredLength() > 1.0e12f)
+            {
+                finite = false;
+                return;
+            }
+        }
 '''
-new_integrate = '''        // primitiveCollision() uses the complete node force vector to derive
-        // normal reaction and the tangential force that static friction must
-        // cancel. Resolve contact here, immediately before node integration.
-        for (std::size_t index : tire_nodes)
-            ApplyFlatGroundContact(nodes[index], 0.0f, road, dt);
-        for (std::size_t index : contact_nodes)
-            ApplyFlatGroundContact(nodes[index], 0.0f, road, dt);
 
-        for (NodeCoreState& node : nodes)
-        {
-            IntegrateNode(node, DEFAULT_GRAVITY, dt);
+phased_front = contact + '''        // RoR::CalcNodes(): consume the force accumulator from the previous
+        // force pass, then reset every node to gravity. The wheel, hydro and
+        // beam code below therefore writes forces for the next physics pass.
+''' + integrate + '''
 '''
-if new_integrate not in s:
-    if s.count(old_integrate) != 1:
-        raise SystemExit(f"force-order integration anchor expected once, found {s.count(old_integrate)}")
-    s = s.replace(old_integrate, new_integrate, 1)
+
+if phased_front not in s:
+    if s.count(contact) != 1:
+        raise SystemExit(f"Euler-phase contact anchor expected once, found {s.count(contact)}")
+    if s.count(integrate) != 1:
+        raise SystemExit(f"Euler-phase integration anchor expected once, found {s.count(integrate)}")
+    s = s.replace(contact, phased_front, 1)
+    # Remove the old end-of-step integration. Keep ++physics_steps at the end,
+    # after force accumulation, matching one completed RoR physics pass.
+    if s.count(integrate) != 2:
+        raise SystemExit(f"Euler-phase integration duplication expected twice, found {s.count(integrate)}")
+    # Delete the second occurrence only.
+    first = s.find(integrate)
+    second = s.find(integrate, first + len(integrate))
+    s = s[:second] + s[second + len(integrate):]
 
 p.write_text(s)
-print('moved RoR ground contact after wheel/suspension/beam force accumulation and before integration')
+print('matched RoR CalcNodes -> wheels/shocks/hydros/beams one-step Euler force phasing')
