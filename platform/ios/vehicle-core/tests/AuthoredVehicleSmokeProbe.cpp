@@ -7,7 +7,7 @@
 #include <sstream>
 #include <string>
 using namespace RoR::IOSVehicleCore;
-namespace{std::string Read(const char*p){std::ifstream f(p,std::ios::binary);if(!f)return {};std::ostringstream s;s<<f.rdbuf();return s.str();}float Dist(const PhysicsVec3&a,const PhysicsVec3&b){float x=a.x-b.x,z=a.z-b.z;return std::sqrt(x*x+z*z);}}
+namespace{std::string Read(const char*p){std::ifstream f(p,std::ios::binary);if(!f)return {};std::ostringstream s;s<<f.rdbuf();return s.str();}float Dist(const RoR::PhysicsVec3&a,const RoR::PhysicsVec3&b){float x=a.x-b.x,z=a.z-b.z;return std::sqrt(x*x+z*z);}}
 int main(int argc,char**argv){
  if(argc!=2){std::cerr<<"usage: ror_authored_vehicle_smoke <vehicle.truck>\n";return 64;}
  const std::string text=Read(argv[1]);if(text.empty()){std::cerr<<"FAIL: cannot read vehicle\n";return 1;}
