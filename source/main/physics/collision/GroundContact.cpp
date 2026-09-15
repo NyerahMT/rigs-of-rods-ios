@@ -56,7 +56,11 @@ GroundContactResult CalcGroundContact(
         slip = PhysicsVec3();
     }
 
-    const float moderated_reaction = reaction * params.ground_strength * params.node_friction;
+    // Upstream primitiveCollision(): Greaction = Freaction * gm->strength *
+    // node->friction_coef. Keep params.node_friction as a test/adapter multiplier
+    // whose normal runtime value is 1, and preserve the authored per-node term.
+    const float moderated_reaction =
+        reaction * params.ground_strength * params.node_friction * node.friction_coef;
     const float static_limit = params.friction.static_friction * moderated_reaction;
 
     if (slip_velocity < params.friction.adhesion_velocity &&
