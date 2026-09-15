@@ -39,8 +39,14 @@ jobs:
           TARGET=build/gabester-bandit-resource/extracted/gavrilbandit400GT.truck
           test -s "$TARGET"
           echo "Fast reference target: $TARGET"
+          echo '--- header / engine ---'
+          nl -ba "$TARGET" | sed -n '1,110p'
+          echo '--- nodes to beams boundary ---'
+          nl -ba "$TARGET" | sed -n '510,575p'
+          echo '--- wheel / suspension area ---'
+          nl -ba "$TARGET" | sed -n '5425,5505p'
           echo '--- physics-relevant sections ---'
-          grep -Ein '^[[:space:]]*(globals|nodes2?|beams|shocks[23]?|hydros|wheels2?|meshwheels2?|flexbodywheels|engine|engoption|brakes|axles|interaxles|set_node_defaults|set_beam_defaults|set_beam_defaults_scale|minimass|set_default_minimass)([[:space:]]|$)' "$TARGET" || true
+          grep -Ein '^[[:space:]]*(globals|nodes2?|beams|shocks[23]?|hydros|wheels2?|meshwheels2?|flexbodywheels|engine|engoption|brakes|axles|interaxles|detacher_group|set_node_defaults|set_beam_defaults|set_beam_defaults_scale|minimass|set_default_minimass)([[:space:]]|$)' "$TARGET" || true
           build/vehicle-core-native/ror_authored_vehicle_smoke "$TARGET"
       - name: Verify authored OGRE visual extraction
         run: |
