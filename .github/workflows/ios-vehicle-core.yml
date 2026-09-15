@@ -23,13 +23,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Restore runtime and apply upstream minimass parity
         run: |
-          # The branch currently carries a placeholder from the aborted parity
-          # experiment. Restore the last complete authored runtime, then apply
-          # RoR's DEFAULT_MINIMASS in the build workspace.
-          git show 648a191273d78580d0c6fc664cf9e73b18a0931d:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
+          git show 20e3ce1299bad39f397fac7fe414e699cf9bad81:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
           python3 - <<'PY'
           from pathlib import Path
           p=Path('platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp')
