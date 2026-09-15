@@ -96,10 +96,23 @@ end
 
     // Verify the portable beam helper retains Actor::CalcBeams() SHOCK1 hard
     // bump interpolation used by the first two spokes in BuildWheelBeams().
+    // CalcBeams uses RoR's fast inverse-square-root length calculation, so derive
+    // the effective length error through an otherwise-identical unbounded beam
+    // instead of comparing against std::sqrt() geometry.
     RoR::NodeCoreState a;
     RoR::NodeCoreState b;
     a.position = RoR::PhysicsVec3(1.30f, 0.0f, 0.0f);
     b.position = RoR::PhysicsVec3(0.0f, 0.0f, 0.0f);
+
+    RoR::BeamCoreState baseline;
+    baseline.rest_length = 1.0f;
+    baseline.spring = 1000.0f;
+    baseline.damping = 0.0f;
+    RoR::ApplyBeamForce(a, b, baseline);
+    const float effective_length_error = -baseline.stress / baseline.spring;
+
+    a.force = RoR::PhysicsVec3();
+    b.force = RoR::PhysicsVec3();
     RoR::BeamCoreState beam;
     beam.rest_length = 1.0f;
     beam.spring = 1000.0f;
@@ -109,10 +122,10 @@ end
     beam.longbound = 0.10f;
     RoR::ApplyBeamForce(a, b, beam);
 
-    const float excess = 0.30f - 0.10f;
-    const float effective_spring = 1000.0f + (DEFAULT_SPRING - 1000.0f) * excess;
-    const float expected_stress = -effective_spring * 0.30f;
-    if (!Near(beam.stress, expected_stress, std::fabs(expected_stress) * 0.002f))
+    const float excess = std::max(0.0f, effective_length_error - beam.longbound * beam.rest_length);
+    const float effective_spring = baseline.spring + (DEFAULT_SPRING - baseline.spring) * excess;
+    const float expected_stress = -effective_spring * effective_length_error;
+    if (!Near(beam.stress, expected_stress, std::fabs(expected_stress) * 0.0001f))
     {
         std::cerr << "FAIL: bounded wheel-beam stress mismatch: got " << beam.stress
                   << " expected " << expected_stress << '\n';
