@@ -63,6 +63,18 @@ jobs:
         run: bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
       - name: Build unsigned OGRE game-view iPhone IPA
         run: platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
+      - name: Package Bandit 400 GT control vehicle
+        run: |
+          APP=build/ios-app/Payload/RoRIOSProbe.app
+          BANDIT=build/gabester-bandit-resource/extracted
+          test -s "$BANDIT/gavrilbandit400GT.truck"
+          mkdir -p "$APP/Content/bandit"
+          cp -R "$BANDIT/." "$APP/Content/bandit/"
+          cp "$BANDIT/gavrilbandit400GT.truck" "$APP/Content/bandit/Bandit.truck"
+          test -s "$APP/Content/bandit/Bandit.truck"
+          grep -q '^Gavril Bandit 400 GT$' "$APP/Content/bandit/Bandit.truck"
+          rm -f build/ios-app/RoRIOSProbe.ipa
+          (cd build/ios-app && zip -qry RoRIOSProbe.ipa Payload)
       - name: Verify OGRE IPA bundle
         run: |
           test -f build/ios-app/RoRIOSProbe.ipa
@@ -72,6 +84,8 @@ jobs:
           test -f "$APP/RoRIOSProbe"
           lipo -info "$APP/RoRIOSProbe" | grep -q arm64
           plutil -lint "$APP/Info.plist"
+          test -s "$APP/Content/bandit/Bandit.truck"
+          grep -q '^Gavril Bandit 400 GT$' "$APP/Content/bandit/Bandit.truck"
       - name: Upload unsigned OGRE game-view iPhone IPA
         uses: actions/upload-artifact@v4
         with: { name: ror-ios-ogre-gameview-ipa, path: build/ios-app/RoRIOSProbe.ipa, if-no-files-found: error }
