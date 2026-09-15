@@ -132,6 +132,10 @@ jobs:
           xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RigDef::SequentialImporter::Process'
           xcrun --sdk iphoneos nm -gU "$LIB" | c++filt | grep -q 'RoR::IOSNative::ParseRigDef'
 
+      - name: Inject on-device physics diagnostics
+        run: |
+          python3 platform/ios/app/apply_physics_debug.py platform/ios/app/OgreGameApp.mm
+
       - name: Build unsigned OGRE game-view iPhone IPA
         run: |
           platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
