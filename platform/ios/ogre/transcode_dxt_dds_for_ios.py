@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Transcode legacy DXT1/DXT3/DXT5 DDS into uncompressed BGRA8 DDS for iOS.
+"""Normalize legacy RoR DDS textures to uncompressed BGRA8 for iOS Metal.
 
-The RoR content remains visually identical and keeps the same .dds filenames.
-Only the on-device storage encoding changes. OGRE 14's Metal backend does not
-expose DXT/BC formats on iOS, so this removes the legacy DXT software decode
-from the runtime path and feeds Metal a native 32-bit BGRA texture instead.
+Classic RoR content uses a mixture of DXT1/DXT3/DXT5 and old uncompressed
+16/24/32-bit RGB DDS files. OGRE's Metal backend on iOS is much happier with a
+single explicit 32-bit BGRA representation, so this tool decodes the top mip and
+rewrites it as canonical A8R8G8B8/BGRA8 while preserving the original filename.
+
+The converter intentionally handles only classic DDS RGB and DXT formats. It
+rejects unknown layouts instead of guessing channel order.
 """
 
 from __future__ import annotations
@@ -24,6 +27,8 @@ DDSD_WIDTH = 0x4
 DDSD_PITCH = 0x8
 DDSD_PIXELFORMAT = 0x1000
 DDSCAPS_TEXTURE = 0x1000
+
+CANONICAL_MASKS = (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
 
 
 def _rgb565(value: int) -> tuple[int, int, int, int]:
@@ -71,8 +76,7 @@ def _decode_dxt3(block: bytes) -> list[tuple[int, int, int, int]]:
 def _dxt5_alpha_table(a0: int, a1: int) -> list[int]:
     if a0 > a1:
         return [
-            a0,
-            a1,
+            a0, a1,
             (6 * a0 + 1 * a1) // 7,
             (5 * a0 + 2 * a1) // 7,
             (4 * a0 + 3 * a1) // 7,
@@ -81,14 +85,12 @@ def _dxt5_alpha_table(a0: int, a1: int) -> list[int]:
             (1 * a0 + 6 * a1) // 7,
         ]
     return [
-        a0,
-        a1,
+        a0, a1,
         (4 * a0 + 1 * a1) // 5,
         (3 * a0 + 2 * a1) // 5,
         (2 * a0 + 3 * a1) // 5,
         (1 * a0 + 4 * a1) // 5,
-        0,
-        255,
+        0, 255,
     ]
 
 
@@ -106,6 +108,54 @@ def _decode_dxt5(block: bytes) -> list[tuple[int, int, int, int]]:
     return result
 
 
+def _decode_masked_channel(value: int, mask: int, default: int) -> int:
+    if mask == 0:
+        return default
+    shift = (mask & -mask).bit_length() - 1
+    bits = mask.bit_count()
+    raw = (value & mask) >> shift
+    maximum = (1 << bits) - 1
+    if maximum <= 0:
+        return default
+    return (raw * 255 + maximum // 2) // maximum
+
+
+def _decode_uncompressed_rgb(data: bytes, width: int, height: int, pf_flags: int) -> tuple[bytes, str]:
+    bpp = struct.unpack_from("<I", data, 88)[0]
+    if bpp not in (16, 24, 32):
+        raise ValueError(f"unsupported uncompressed RGB bit depth {bpp}")
+
+    masks = tuple(struct.unpack_from("<I", data, offset)[0] for offset in (92, 96, 100, 104))
+    rmask, gmask, bmask, amask = masks
+    if not rmask or not gmask or not bmask:
+        raise ValueError("uncompressed RGB DDS is missing colour masks")
+
+    bytes_per_pixel = bpp // 8
+    packed_row_bytes = width * bytes_per_pixel
+    header_flags = struct.unpack_from("<I", data, 8)[0]
+    pitch_or_linear = struct.unpack_from("<I", data, 20)[0]
+    row_pitch = pitch_or_linear if (header_flags & DDSD_PITCH) and pitch_or_linear >= packed_row_bytes else packed_row_bytes
+    required = row_pitch * height
+    payload = data[128:128 + required]
+    if len(payload) < required:
+        raise ValueError("uncompressed RGB top mip is truncated")
+
+    rgba = bytearray(width * height * 4)
+    has_alpha = bool(pf_flags & DDPF_ALPHAPIXELS) and amask != 0
+    for y in range(height):
+        row = payload[y * row_pitch:y * row_pitch + packed_row_bytes]
+        for x in range(width):
+            begin = x * bytes_per_pixel
+            value = int.from_bytes(row[begin:begin + bytes_per_pixel], "little")
+            dst = (y * width + x) * 4
+            rgba[dst + 0] = _decode_masked_channel(value, rmask, 0)
+            rgba[dst + 1] = _decode_masked_channel(value, gmask, 0)
+            rgba[dst + 2] = _decode_masked_channel(value, bmask, 0)
+            rgba[dst + 3] = _decode_masked_channel(value, amask, 255) if has_alpha else 255
+
+    return bytes(rgba), f"RGB{bpp}"
+
+
 def decode_top_mip(data: bytes) -> tuple[int, int, bytes, str]:
     if len(data) < 128 or data[:4] != DDS_MAGIC:
         raise ValueError("input is not a classic DDS file")
@@ -118,51 +168,57 @@ def decode_top_mip(data: bytes) -> tuple[int, int, bytes, str]:
     pf_flags = struct.unpack_from("<I", data, 80)[0]
     fourcc = data[84:88]
 
-    if pf_size != 32 or not (pf_flags & DDPF_FOURCC):
-        raise ValueError("expected a FourCC-compressed DDS")
+    if pf_size != 32:
+        raise ValueError("unsupported DDS pixel-format header size")
     if width < 1 or height < 1 or width > 16384 or height > 16384:
         raise ValueError(f"invalid DDS dimensions {width}x{height}")
 
-    if fourcc == b"DXT1":
-        block_size = 8
-        decoder = _decode_dxt1
-        format_name = "DXT1"
-    elif fourcc == b"DXT3":
-        block_size = 16
-        decoder = _decode_dxt3
-        format_name = "DXT3"
-    elif fourcc == b"DXT5":
-        block_size = 16
-        decoder = _decode_dxt5
-        format_name = "DXT5"
-    else:
-        raise ValueError(f"unsupported DDS FourCC {fourcc!r}; expected DXT1, DXT3, or DXT5")
+    if pf_flags & DDPF_FOURCC:
+        if fourcc == b"DXT1":
+            block_size = 8
+            decoder = _decode_dxt1
+            format_name = "DXT1"
+        elif fourcc == b"DXT3":
+            block_size = 16
+            decoder = _decode_dxt3
+            format_name = "DXT3"
+        elif fourcc == b"DXT5":
+            block_size = 16
+            decoder = _decode_dxt5
+            format_name = "DXT5"
+        else:
+            raise ValueError(f"unsupported DDS FourCC {fourcc!r}; expected DXT1, DXT3, or DXT5")
 
-    blocks_x = (width + 3) // 4
-    blocks_y = (height + 3) // 4
-    required = blocks_x * blocks_y * block_size
-    payload = data[128:128 + required]
-    if len(payload) != required:
-        raise ValueError("compressed top mip is truncated")
+        blocks_x = (width + 3) // 4
+        blocks_y = (height + 3) // 4
+        required = blocks_x * blocks_y * block_size
+        payload = data[128:128 + required]
+        if len(payload) != required:
+            raise ValueError("compressed top mip is truncated")
 
-    rgba = bytearray(width * height * 4)
-    offset = 0
-    for block_y in range(blocks_y):
-        for block_x in range(blocks_x):
-            pixels = decoder(payload[offset:offset + block_size])
-            offset += block_size
-            for py in range(4):
-                y = block_y * 4 + py
-                if y >= height:
-                    continue
-                for px in range(4):
-                    x = block_x * 4 + px
-                    if x >= width:
+        rgba = bytearray(width * height * 4)
+        offset = 0
+        for block_y in range(blocks_y):
+            for block_x in range(blocks_x):
+                pixels = decoder(payload[offset:offset + block_size])
+                offset += block_size
+                for py in range(4):
+                    y = block_y * 4 + py
+                    if y >= height:
                         continue
-                    dst = (y * width + x) * 4
-                    rgba[dst:dst + 4] = bytes(pixels[py * 4 + px])
+                    for px in range(4):
+                        x = block_x * 4 + px
+                        if x >= width:
+                            continue
+                        dst = (y * width + x) * 4
+                        rgba[dst:dst + 4] = bytes(pixels[py * 4 + px])
+        return width, height, bytes(rgba), format_name
 
-    return width, height, bytes(rgba), format_name
+    if pf_flags & DDPF_RGB:
+        rgba, format_name = _decode_uncompressed_rgb(data, width, height, pf_flags)
+        return width, height, rgba, format_name
+
+    raise ValueError(f"unsupported classic DDS pixel flags 0x{pf_flags:x}")
 
 
 def encode_bgra8_dds(width: int, height: int, rgba: bytes) -> bytes:
@@ -185,10 +241,7 @@ def encode_bgra8_dds(width: int, height: int, rgba: bytes) -> bytes:
         DDPF_RGB | DDPF_ALPHAPIXELS,
         0,
         32,
-        0x00FF0000,
-        0x0000FF00,
-        0x000000FF,
-        0xFF000000,
+        *CANONICAL_MASKS,
     )
     header += struct.pack("<IIIII", DDSCAPS_TEXTURE, 0, 0, 0, 0)
     if len(header) != 124:
@@ -206,7 +259,7 @@ def validate_output(data: bytes, width: int, height: int) -> None:
     if struct.unpack_from("<I", data, 88)[0] != 32:
         raise ValueError("transcoded DDS is not 32bpp")
     masks = tuple(struct.unpack_from("<I", data, offset)[0] for offset in (92, 96, 100, 104))
-    if masks != (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000):
+    if masks != CANONICAL_MASKS:
         raise ValueError("transcoded DDS channel masks are wrong")
 
 
