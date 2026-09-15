@@ -11,3 +11,4 @@ if not args:
 subprocess.check_call([sys.executable, str(here / "apply_runtime_mass_parity_base.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_wheel_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_wheel_format_parity.py"), *args])
+subprocess.check_call([sys.executable, str(here / "apply_meshwheel_build_bridge.py"), *args])
