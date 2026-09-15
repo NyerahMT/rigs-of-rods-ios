@@ -38,7 +38,7 @@ wheels2
 0.30,0.50,0.28,12,2,4,0,2,1,0,20,380000,4800,170000,2400
 0.30,0.50,0.28,12,3,5,1,2,1,1,20,380000,4800,170000,2400
 engine
-1200,6500,410,4.10,-3.20,0,3.05,2.10,1.55,1.18,1.00
+1200,6500,410,4.10,3.20,0,3.05,2.10,1.55,1.18,1.00,-1
 brakes
 30000,55000
 end
@@ -48,5 +48,5 @@ Require(Near(r.nodes[0].minimass,42),"minimass section applies");Require(Near(r.
 Require(r.nodes[1].loaded_mass&&!r.nodes[1].override_mass,"plain l node uses shared globals load mass");Require(r.nodes[2].loaded_mass&&r.nodes[2].override_mass&&Near(r.nodes[2].load_weight,120),"explicit l mass overrides load mass");
 Require(Near(r.nodes[3].minimass,12),"set_default_minimass applies forward");Require(r.nodes[3].loaded_mass&&r.nodes[3].override_mass&&Near(r.nodes[3].load_weight,15),"default loadweight creates loaded override node");Require(Near(r.nodes[3].friction,.75),"changed friction default");
 Require(Near(r.beams[0].spring,400000),"beam-default scale applies");Require(Near(r.beams[0].damping,9000),"beam damping scale");Require(Near(r.hydros[0].spring,400000),"scaled defaults reach hydros");Require(Near(r.hydros[0].lengthening_factor,.12),"hydro factor");
-Require(r.engine.present&&Near(r.engine.torque,410),"engine");Require(r.brakes.present&&Near(r.brakes.parking_force,55000),"brakes");Require(r.warnings.empty(),"supported fixture warns cleanly");
+Require(r.engine.present&&Near(r.engine.torque,410),"engine");Require(Near(r.engine.differential_ratio,4.10),"engine differential ratio");Require(Near(r.engine.reverse_gear_ratio,3.20),"engine reverse ratio");Require(Near(r.engine.neutral_gear_ratio,0),"engine neutral ratio");Require(r.engine.gear_ratios.size()==5,"forward gears only");Require(Near(r.engine.gear_ratios[0],3.05)&&Near(r.engine.gear_ratios[4],1.00),"forward gear values");Require(r.brakes.present&&Near(r.brakes.parking_force,55000),"brakes");Require(r.warnings.empty(),"supported fixture warns cleanly");
 std::cout<<"RigDef parity probe passed\n";return EXIT_SUCCESS;}
