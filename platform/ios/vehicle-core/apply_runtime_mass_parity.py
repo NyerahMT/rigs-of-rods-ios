@@ -1,13 +1,19 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]);s=p.read_text()
-def one(old,new):
- global s
- if s.count(old)!=1: raise SystemExit('runtime parity anchor drifted: '+old[:80])
- s=s.replace(old,new,1)
 
-one('#include "PortableRigDef.h"\n','#include "PortableRigDef.h"\n#include "RoRMassDistribution.h"\n#include "RoRDrivetrain.h"\n')
+p = Path(sys.argv[1])
+s = p.read_text()
+
+def one(old, new):
+    global s
+    if s.count(old) != 1:
+        raise SystemExit('runtime parity anchor drifted: ' + old[:80])
+    s = s.replace(old, new, 1)
+
+one('#include "PortableRigDef.h"\n',
+    '#include "PortableRigDef.h"\n#include "RoRMassDistribution.h"\n#include "RoRDrivetrain.h"\n')
+
 one('''    GroundContactParams road;
 
     float steering = 0.0f;
@@ -16,6 +22,7 @@ one('''    GroundContactParams road;
 
     float steering = 0.0f;
 ''')
+
 one('''        fixture.braking = def.braking;
         fixture.propulsion = def.propulsion;
         fixture.reference_arm = ResolveNode(def.reference_arm_node);
@@ -26,6 +33,7 @@ one('''        fixture.braking = def.braking;
         fixture.wheel.reverse_rotation = (def.propulsion == 2);
         fixture.reference_arm = ResolveNode(def.reference_arm_node);
 ''')
+
 one('''        float dry_mass = rig.globals.present ? rig.globals.dry_mass : 0.0f;
         if (dry_mass <= 0.0f)
         {
@@ -51,15 +59,34 @@ one('''        float dry_mass = rig.globals.present ? rig.globals.dry_mass : 0.0
             drivetrain_config.neutral_gear_ratio = rig.engine.neutral_gear_ratio;
             drivetrain_config.forward_gears = rig.engine.gear_ratios;
         }
+        if (rig.engoption.present)
+        {
+            // RigDef::Engoption is not cosmetic. The Bandit, for example,
+            // authors 0.075 kg*m^2 inertia rather than Engine's 10.0 default.
+            // Ignoring it makes throttle response more than two orders of
+            // magnitude too slow before the clutch can transfer torque.
+            drivetrain_config.engine_inertia = rig.engoption.inertia;
+            if (rig.engoption.clutch_force >= 0.0f)
+                drivetrain_config.clutch_force = rig.engoption.clutch_force;
+            if (rig.engoption.shift_time > 0.0f)
+                drivetrain_config.shift_time = rig.engoption.shift_time;
+            if (rig.engoption.clutch_time > 0.0f)
+                drivetrain_config.clutch_time = rig.engoption.clutch_time;
+            if (rig.engoption.post_shift_time > 0.0f)
+                drivetrain_config.post_shift_time = rig.engoption.post_shift_time;
+        }
         drivetrain.Configure(drivetrain_config);
 ''')
-one('AddNode(PhysicsVec3(source.x, source.y, source.z), authored_node_mass);','AddNode(PhysicsVec3(source.x, source.y, source.z), 1.0f);')
-anchor='''        for (const PortableRigDef::Wheel& source : rig.wheels)
+
+one('AddNode(PhysicsVec3(source.x, source.y, source.z), authored_node_mass);',
+    'AddNode(PhysicsVec3(source.x, source.y, source.z), 1.0f);')
+
+anchor = '''        for (const PortableRigDef::Wheel& source : rig.wheels)
             BuildWheel(source);
 
         if (wheels.empty())
 '''
-insert='''        for (const PortableRigDef::Wheel& source : rig.wheels)
+insert = '''        for (const PortableRigDef::Wheel& source : rig.wheels)
             BuildWheel(source);
 
         // Match Actor::recalculateNodeMasses(): preserve tyre masses, initialize
@@ -89,7 +116,9 @@ insert='''        for (const PortableRigDef::Wheel& source : rig.wheels)
         for (const BeamLink& link : beams)
         {
             MassBeamInput b;
-            b.a = link.a; b.b = link.b; b.reference_length = link.beam.rest_length;
+            b.a = link.a;
+            b.b = link.b;
+            b.reference_length = link.beam.rest_length;
             b.virtual_beam = false;
             mass_beams.push_back(b);
         }
@@ -101,18 +130,19 @@ insert='''        for (const PortableRigDef::Wheel& source : rig.wheels)
             for (std::size_t i = 0; i < nodes.size(); ++i)
             {
                 nodes[i].mass = distributed.masses[i];
-                // AddNode seeded gravity using temporary construction mass; refresh it.
                 nodes[i].force = PhysicsVec3(0.0f, nodes[i].mass * DEFAULT_GRAVITY, 0.0f);
             }
         }
 
         if (wheels.empty())
 '''
-one(anchor,insert)
+one(anchor, insert)
+
 one('''        AlignTiresToGround();
         ConfigureWheelDirections();
 ''','''        AlignTiresToGround();
 ''')
+
 one('''        const float authored_engine_torque = rig.engine.present ? std::fabs(rig.engine.torque) : 1200.0f;
         const float total_drive_torque = std::min(authored_engine_torque, 8000.0f) * throttle_state * 0.55f;
         const float per_driven_torque = driven_count > 0
@@ -135,6 +165,7 @@ one('''        const float authored_engine_torque = rig.engine.present ? std::fa
             : 0.0f;
         const float service_force = rig.brakes.present ? std::max(0.0f, rig.brakes.service_force) : 30000.0f;
 ''')
+
 one('''        if (!rig.globals.present)
             Warn("portable authored runtime is using fallback mass distribution");
         else
@@ -143,11 +174,21 @@ one('''        if (!rig.globals.present)
             Warn("portable authored runtime is using fallback dry mass");
 ''')
 
+# Publish the drivetrain state already being used for wheel torque. This avoids
+# inventing a second RPM model in the iOS HUD/audio layer.
+one('''    telemetry.throttle = m_impl->throttle_state;
+    telemetry.handbrake = m_impl->handbrake;
+    telemetry.physics_steps = m_impl->physics_steps;
+''','''    telemetry.throttle = m_impl->throttle_state;
+    telemetry.handbrake = m_impl->handbrake;
+    telemetry.physics_steps = m_impl->physics_steps;
+    telemetry.engine_rpm = m_impl->drivetrain.Telemetry().engine_rpm;
+    telemetry.gear = m_impl->drivetrain.Telemetry().gear;
+''')
+
 # The workflow restores AuthoredVehicleRuntime.cpp from an older complete runtime
-# snapshot. The current header/app diagnostic API was added later, so provide the
-# missing definitions here instead of letting the iPhone link silently depend on
-# source history. EarlyDiagnostics synthesizes the stopped/current state so an
-# on-device blow-up still reports the worst node and beam.
+# snapshot. Provide the diagnostic API added after that snapshot so device failures
+# still report the worst live node and beam.
 one('''    return telemetry;
 }
 
@@ -160,12 +201,10 @@ const std::vector<EarlyStepDiagnostics>& AuthoredVehicleRuntime::EarlyDiagnostic
 {
     static thread_local std::vector<EarlyStepDiagnostics> diagnostics;
     diagnostics.clear();
-    if (!m_impl || m_impl->nodes.empty())
-        return diagnostics;
+    if (!m_impl || m_impl->nodes.empty()) return diagnostics;
 
     EarlyStepDiagnostics d;
     d.step = m_impl->physics_steps;
-
     float worst_speed_sq = -1.0f;
     for (std::size_t i = 0; i < m_impl->nodes.size(); ++i)
     {
@@ -204,7 +243,6 @@ const std::vector<EarlyStepDiagnostics>& AuthoredVehicleRuntime::EarlyDiagnostic
             if (!std::isfinite(magnitude)) break;
         }
     }
-
     diagnostics.push_back(d);
     return diagnostics;
 }
@@ -213,8 +251,7 @@ const SpawnGroundDiagnostics& AuthoredVehicleRuntime::SpawnDiagnostics() const
 {
     static thread_local SpawnGroundDiagnostics diagnostics;
     diagnostics = SpawnGroundDiagnostics();
-    if (!m_impl || m_impl->nodes.empty())
-        return diagnostics;
+    if (!m_impl || m_impl->nodes.empty()) return diagnostics;
 
     diagnostics.min_node_y = diagnostics.max_node_y = m_impl->nodes.front().position.y;
     diagnostics.min_node = 0;
@@ -241,8 +278,7 @@ const SpawnGroundDiagnostics& AuthoredVehicleRuntime::SpawnDiagnostics() const
             have_tire = true;
         }
     }
-    if (have_tire)
-        diagnostics.max_penetration = std::max(0.0f, -diagnostics.min_tire_y);
+    if (have_tire) diagnostics.max_penetration = std::max(0.0f, -diagnostics.min_tire_y);
 
     if (m_impl->nodes.size() > 27)
     {
@@ -257,8 +293,7 @@ const std::vector<NodeBeamDiagnostic>& AuthoredVehicleRuntime::Node27BeamDiagnos
 {
     static thread_local std::vector<NodeBeamDiagnostic> diagnostics;
     diagnostics.clear();
-    if (!m_impl || m_impl->nodes.size() <= 27)
-        return diagnostics;
+    if (!m_impl || m_impl->nodes.size() <= 27) return diagnostics;
 
     for (std::size_t i = 0; i < m_impl->beams.size(); ++i)
     {
@@ -281,5 +316,6 @@ const std::vector<NodeBeamDiagnostic>& AuthoredVehicleRuntime::Node27BeamDiagnos
 } // namespace IOSVehicleCore
 } // namespace RoR
 ''')
+
 p.write_text(s)
-print('applied upstream-compatible RoR mass, wheel direction, drivetrain, and diagnostic parity')
+print('applied upstream-compatible RoR mass, wheel direction, drivetrain, engoption, telemetry, and diagnostic parity')
