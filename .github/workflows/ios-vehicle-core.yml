@@ -75,27 +75,42 @@ jobs:
           test -s "$DST/Bandit.truck"
           grep -q '^Gavril Bandit 400 GT$' "$DST/Bandit.truck"
 
-          # Normalize only legacy DXT/BC textures if this archived package ever
-          # ships them. Current Bandit releases are already largely BGRA8 DDS, so
-          # zero conversions is valid; the critical-texture checks below are the gate.
+          # Archived RoR packs mix DXT with old 24-bit and 32-bit RGB DDS files.
+          # Canonical BGRA8 can stay untouched; every other RGB/DXT texture that
+          # our converter understands is rewritten to the same iOS-safe layout.
           python3 - "$DST" platform/ios/ogre/transcode_dxt_dds_for_ios.py <<'PY'
           from pathlib import Path
+          import struct
           import subprocess
           import sys
           root = Path(sys.argv[1])
           transcoder = Path(sys.argv[2])
+          canonical_masks = (0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
           converted = 0
+          skipped_other = 0
           for path in sorted(root.rglob('*.dds')):
               header = path.read_bytes()[:128]
-              if len(header) < 88 or header[:4] != b'DDS ':
+              if len(header) < 128 or header[:4] != b'DDS ':
                   continue
-              if header[84:88] not in {b'DXT1', b'DXT3', b'DXT5'}:
+              flags = struct.unpack_from('<I', header, 80)[0]
+              fourcc = header[84:88]
+              bpp = struct.unpack_from('<I', header, 88)[0]
+              masks = tuple(struct.unpack_from('<I', header, o)[0] for o in (92,96,100,104))
+              canonical = fourcc == b'\0\0\0\0' and bpp == 32 and masks == canonical_masks
+              if canonical:
+                  continue
+              supported = fourcc in {b'DXT1', b'DXT3', b'DXT5'} or ((flags & 0x40) and bpp in {16,24,32})
+              if not supported:
+                  print(f'Leaving unsupported non-diffuse DDS untouched: {path.name} flags=0x{flags:x} bpp={bpp} fourcc={fourcc!r}')
+                  skipped_other += 1
                   continue
               temp = path.with_name(path.name + '.bgra8')
               subprocess.check_call([sys.executable, str(transcoder), str(path), str(temp)])
               temp.replace(path)
               converted += 1
-          print(f'Bandit iOS DDS transcoded: {converted}')
+          print(f'Bandit iOS DDS normalized: {converted}; unsupported auxiliary maps left untouched: {skipped_other}')
+          if converted == 0:
+              raise SystemExit('expected the archived Bandit pack to contain legacy RGB/DXT diffuse textures')
           PY
 
           # The iOS audio bridge consumes the vehicle's actual soundscript and GT
@@ -107,18 +122,28 @@ jobs:
           grep -q 'banditv8GTEngineAcc' "$DST/Bandit.truck"
           grep -q 'banditStarter' "$DST/Bandit.truck"
 
-          # Critical managed-material diffuse maps must be uncompressed BGRA8.
+          # Every diffuse map referenced by the GT's managedmaterials section must
+          # be canonical BGRA8 before the Metal app reaches the device.
           python3 - "$DST" <<'PY'
           from pathlib import Path
           import struct
           import sys
           root = Path(sys.argv[1])
-          for name in ['gavrilbanditGT.dds','banditV8.dds','banditglass.dds','banditintglass.dds','banditinterior.dds']:
+          names = [
+              'gavrilbanditGT.dds', 'burnwheelband.dds', 'gavrilinvis.dds',
+              'banditwheelGT.dds', 'banditV8.dds', 'banditglass.dds',
+              'banditintglass.dds', 'banditinterior.dds', 'banditsteerGT.dds'
+          ]
+          expected_masks = (0x00FF0000,0x0000FF00,0x000000FF,0xFF000000)
+          for name in names:
               path = root / name
               data = path.read_bytes()[:128]
               assert data[:4] == b'DDS ', path
               assert data[84:88] == b'\0\0\0\0', f'{name}: still FourCC compressed'
               assert struct.unpack_from('<I', data, 88)[0] == 32, f'{name}: not BGRA8'
+              masks = tuple(struct.unpack_from('<I', data, o)[0] for o in (92,96,100,104))
+              assert masks == expected_masks, f'{name}: non-canonical channel masks {masks}'
+          print(f'Bandit managed-material diffuse textures verified: {len(names)}')
           PY
 
           rm -f build/ios-app/RoRIOSProbe.ipa
