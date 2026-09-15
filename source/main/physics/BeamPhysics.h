@@ -56,6 +56,9 @@ struct NodeCoreState
     PhysicsVec3 velocity;
     PhysicsVec3 force;
     float mass = 1.0f;
+    // Upstream node_t carries set_node_defaults friction per node; collision
+    // moderation multiplies ground strength by this coefficient.
+    float friction_coef = 1.0f;
     bool immovable = false;
 };
 
