@@ -65,12 +65,21 @@ struct BeamCoreState
     float spring = 0.0f;
     float damping = 0.0f;
     float stress = 0.0f;
+
+    // RoR's generated wheel spokes use SpecialBeam::SHOCK1 bounds even though
+    // they are wheel beams rather than authored shocks. Keep the same state in
+    // the portable core so meshwheels/meshwheels2 do not become unconstrained
+    // generic springs on iOS.
+    bool bounded = false;
+    float shortbound = 0.0f;
+    float longbound = 0.0f;
 };
 
 // Exact scalar spring/damper law used in Actor::CalcBeams().
 float CalcBeamStress(float length_error, float relative_speed, float spring, float damping);
 
-// Applies equal/opposite force to the two nodes using RoR's beam direction math.
+// Applies equal/opposite force to the two nodes using RoR's beam direction math,
+// including the SHOCK1-style hard-bump interpolation used by generated wheel beams.
 void ApplyBeamForce(NodeCoreState& node1, NodeCoreState& node2, BeamCoreState& beam);
 
 // Base semi-implicit Euler integration from Actor::CalcNodes().
