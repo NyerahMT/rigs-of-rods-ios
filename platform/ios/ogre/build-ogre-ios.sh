@@ -76,6 +76,26 @@ src.write_text(text)
 print("Applied OGRE Metal reflected constant-buffer padding patch")
 PY
 
+# RoR-era meshes legitimately use OGRE's v1.30-v1.41 serializers, whose own
+# loader comments note that old chunk sizes are sometimes wrong. OGRE 14 added
+# a strict whole-stream bounds check in Serializer::readChunk(); it rejects
+# these otherwise readable legacy files before the version-specific reader can
+# apply its compatibility logic. Preserve strict checking for modern formats,
+# but clamp only pre-1.8 mesh chunks to the bytes remaining in the stream.
+python3 - "$OGRE_SRC" <<'PY'
+from pathlib import Path
+import sys
+src = Path(sys.argv[1]) / "OgreMain/src/OgreSerializer.cpp"
+text = src.read_text()
+old = """        if (!stream->eof())\n        {\n            // chunk size cant be smaller than the header size, and must fit within the stream\n            if (mCurrentstreamLen < calcChunkHeaderSize() || pos + mCurrentstreamLen > stream->size())\n                OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, \"Corrupt chunk length\");\n        }\n"""
+new = """        if (!stream->eof())\n        {\n            // Pre-1.8 OGRE mesh exporters are known to have emitted incorrect\n            // chunk lengths. Keep modern streams strict, but let their dedicated\n            // legacy readers consume the actual bytes that remain.\n            const size_t remaining = stream->size() >= pos ? stream->size() - pos : 0u;\n            if (mCurrentstreamLen < calcChunkHeaderSize())\n                OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, \"Corrupt chunk length\");\n\n            if (static_cast<size_t>(mCurrentstreamLen) > remaining)\n            {\n                const bool legacyMeshVersion =\n                    mVersion == \"[MeshSerializer_v1.41]\" ||\n                    mVersion == \"[MeshSerializer_v1.40]\" ||\n                    mVersion == \"[MeshSerializer_v1.30]\" ||\n                    mVersion == \"[MeshSerializer_v1.20]\" ||\n                    mVersion == \"[MeshSerializer_v1.10]\";\n                if (!legacyMeshVersion)\n                    OGRE_EXCEPT(Exception::ERR_INTERNAL_ERROR, \"Corrupt chunk length\");\n                mCurrentstreamLen = static_cast<uint32>(remaining);\n            }\n        }\n"""
+if old not in text:
+    raise SystemExit("OGRE legacy mesh chunk-bounds patch anchor changed")
+text = text.replace(old, new, 1)
+src.write_text(text)
+print("Applied OGRE pre-1.8 legacy mesh chunk-bounds compatibility patch")
+PY
+
 rm -rf "$OGRE_BUILD"
 
 cmake \
