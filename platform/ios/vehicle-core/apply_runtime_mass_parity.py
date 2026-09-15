@@ -12,4 +12,5 @@ subprocess.check_call([sys.executable, str(here / "apply_runtime_mass_parity_bas
 subprocess.check_call([sys.executable, str(here / "apply_wheel_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_wheel_format_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_node_friction_parity.py"), *args])
+subprocess.check_call([sys.executable, str(here / "apply_wheel_brake_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_meshwheel_build_bridge.py"), *args])
