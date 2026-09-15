@@ -42,6 +42,17 @@ struct Engine {
     float neutral_gear_ratio=1;
     std::vector<float> gear_ratios; // Forward gears only, matching RigDef::Engine::gear_ratios.
 };
+// Mirrors upstream RigDef::Engoption. Negative timing/force values mean
+// "leave Engine defaults unchanged" in classic truck files.
+struct EngOption {
+    bool present=false;
+    float inertia=10.0f;
+    char type='t';
+    float clutch_force=-1.0f;
+    float shift_time=-1.0f;
+    float clutch_time=-1.0f;
+    float post_shift_time=-1.0f;
+};
 struct Brakes { bool present=false; float service_force=30000,parking_force=-1; };
 struct Document {
     std::string name;
@@ -54,6 +65,7 @@ struct Document {
     std::vector<Shock> shocks;
     std::vector<Wheel> wheels;
     Engine engine;
+    EngOption engoption;
     Brakes brakes;
     std::vector<std::string> contacters;
     std::vector<std::string> warnings;
