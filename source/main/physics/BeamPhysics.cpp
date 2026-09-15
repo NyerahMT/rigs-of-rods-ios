@@ -39,9 +39,9 @@ void ApplyBeamForce(NodeCoreState& node1, NodeCoreState& node2, BeamCoreState& b
     float spring = beam.spring;
     float damping = beam.damping;
 
-    // Generated RoR wheel spokes are SHOCK1-bounded beams. Actor::CalcBeams()
-    // leaves the authored wheel spring/damper active inside the bounds and,
-    // once a bound is exceeded, interpolates toward the normal beam defaults.
+    // Actor::CalcBeams() SHOCK1 handling. Wheel spokes use the global normal
+    // beam constants at the limiter. Authored `shocks`/`shocks2` instead use
+    // the BeamDefaults captured when that shock was spawned (shock_t::sbd_*).
     if (beam.bounded)
     {
         float interp_ratio = 0.0f;
@@ -52,8 +52,10 @@ void ApplyBeamForce(NodeCoreState& node1, NodeCoreState& node2, BeamCoreState& b
 
         if (interp_ratio != 0.0f)
         {
-            spring += (DEFAULT_SPRING - spring) * interp_ratio;
-            damping += (DEFAULT_DAMP - damping) * interp_ratio;
+            const float target_spring = beam.bump_spring > 0.0f ? beam.bump_spring : DEFAULT_SPRING;
+            const float target_damping = beam.bump_damping > 0.0f ? beam.bump_damping : DEFAULT_DAMP;
+            spring += (target_spring - spring) * interp_ratio;
+            damping += (target_damping - damping) * interp_ratio;
         }
     }
 
