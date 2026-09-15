@@ -16,8 +16,14 @@ elif base_anchor not in text:
     raise SystemExit('meshwheel renderer state bridge anchor drifted')
 path.write_text(text)
 
+here = Path(__file__).resolve().parent
 subprocess.check_call([
     sys.executable,
-    str(Path(__file__).resolve().parent / 'apply_meshwheel_renderer.py'),
+    str(here / 'apply_meshwheel_renderer.py'),
+    str(path),
+])
+subprocess.check_call([
+    sys.executable,
+    str(here / 'apply_render_interpolation.py'),
     str(path),
 ])
