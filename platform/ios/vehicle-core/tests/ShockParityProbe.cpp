@@ -1,6 +1,7 @@
 #include "BeamPhysics.h"
 #include "PortableRigDef.h"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <string>
