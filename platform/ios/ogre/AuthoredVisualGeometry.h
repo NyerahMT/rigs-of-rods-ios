@@ -2,7 +2,7 @@
     Visual geometry extraction for the iOS OGRE bring-up.
     This keeps rendering data separate from the portable physics parser while
     preserving the authored RoR cab triangles, texture coordinates, wheel definitions,
-    prop attachments, and flexbody attachment/forset metadata.
+    prop attachments, flexbody attachment/forset metadata, and managed materials.
 */
 
 #pragma once
@@ -54,6 +54,16 @@ struct PropVisual
     std::string mesh_name;
 };
 
+struct ManagedMaterialVisual
+{
+    std::string name;
+    std::string type;
+    std::string diffuse_texture;
+    std::string specular_texture;
+    std::string damage_texture;
+    bool transparent = false;
+};
+
 // Mirrors the authored fields consumed by upstream ActorSpawner::ProcessFlexbody().
 // `node_indices` is RoR's `forset`: the candidate rig nodes used to bind each
 // mesh vertex to a deforming local basis. Keeping this data explicit lets the
@@ -80,6 +90,7 @@ struct AuthoredVisualGeometry
     std::vector<WheelVisual> wheels;
     std::vector<PropVisual> props;
     std::vector<FlexBodyVisual> flexbodies;
+    std::vector<ManagedMaterialVisual> managed_materials;
     std::vector<std::string> warnings;
 };
 
