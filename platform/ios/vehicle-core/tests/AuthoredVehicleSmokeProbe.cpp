@@ -1,6 +1,7 @@
 #include "AuthoredVehicleRuntime.h"
 #include "SimConstants.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -87,11 +88,62 @@ void PrintWorstNode(const AuthoredVehicleRuntime& vehicle, const char* phase, in
               << " speed=" << std::sqrt(worst_speed_sq) << '\n';
 }
 
-bool RunPhase(AuthoredVehicleRuntime& vehicle, const char* phase, int steps)
+struct TireContactStats
+{
+    std::size_t samples = 0;
+    std::size_t min_contacts = std::numeric_limits<std::size_t>::max();
+    std::size_t max_contacts = 0;
+    std::size_t zero_contact_steps = 0;
+    double contact_sum = 0.0;
+    double vertical_speed_sq_sum = 0.0;
+    std::size_t vertical_speed_samples = 0;
+    float max_abs_vertical_speed = 0.0f;
+
+    void Sample(const AuthoredVehicleRuntime& vehicle)
+    {
+        const auto& tyres = vehicle.TireNodeIndices();
+        std::size_t contacts = 0;
+        for (std::size_t index : tyres)
+        {
+            if (index >= vehicle.NodeCount()) continue;
+            const auto& node = vehicle.Node(index);
+            // The current portable terrain contact is the Y=0 plane. A node at
+            // or below it is part of the instantaneous tyre contact patch.
+            if (node.position.y <= 0.0f) ++contacts;
+            const float ay = std::fabs(node.velocity.y);
+            max_abs_vertical_speed = std::max(max_abs_vertical_speed, ay);
+            vertical_speed_sq_sum += static_cast<double>(node.velocity.y) * node.velocity.y;
+            ++vertical_speed_samples;
+        }
+        min_contacts = std::min(min_contacts, contacts);
+        max_contacts = std::max(max_contacts, contacts);
+        if (contacts == 0) ++zero_contact_steps;
+        contact_sum += static_cast<double>(contacts);
+        ++samples;
+    }
+
+    void Print(const char* phase) const
+    {
+        const double average_contacts = samples ? contact_sum / static_cast<double>(samples) : 0.0;
+        const double rms_vy = vertical_speed_samples
+            ? std::sqrt(vertical_speed_sq_sum / static_cast<double>(vertical_speed_samples))
+            : 0.0;
+        std::cerr << "tire_contact phase=" << phase
+                  << " avg=" << average_contacts
+                  << " min=" << (samples ? min_contacts : 0)
+                  << " max=" << max_contacts
+                  << " zero_steps=" << zero_contact_steps << '/' << samples
+                  << " rms_vy=" << rms_vy
+                  << " max_abs_vy=" << max_abs_vertical_speed << '\n';
+    }
+};
+
+bool RunPhase(AuthoredVehicleRuntime& vehicle, const char* phase, int steps, TireContactStats* stats = nullptr)
 {
     for (int i = 0; i < steps; ++i)
     {
         vehicle.Step(PHYSICS_DT);
+        if (stats) stats->Sample(vehicle);
         if (!vehicle.IsFinite())
         {
             PrintWorstNode(vehicle, phase, i + 1);
@@ -134,20 +186,24 @@ int main(int argc, char** argv)
 
     PrintMassSummary(vehicle);
 
+    TireContactStats settle_stats;
     vehicle.SetControls(0.0f, 0.0f, 0.0f, false);
-    if (!RunPhase(vehicle, "settle", 3000))
+    if (!RunPhase(vehicle, "settle", 3000, &settle_stats))
     {
         std::cerr << "FAIL: vehicle unstable while settling\n";
         return 3;
     }
+    settle_stats.Print("settle");
     const auto settled = vehicle.Telemetry();
 
+    TireContactStats power_stats;
     vehicle.SetControls(0.0f, 0.60f, 0.0f, false);
-    if (!RunPhase(vehicle, "power", 5000))
+    if (!RunPhase(vehicle, "power", 5000, &power_stats))
     {
         std::cerr << "FAIL: vehicle unstable under power\n";
         return 4;
     }
+    power_stats.Print("power");
     const auto powered = vehicle.Telemetry();
 
     const float travel = Dist(settled.center, powered.center);
