@@ -14,8 +14,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - name: Restore complete authored runtime
-        run: git show 20e3ce1299bad39f397fac7fe414e699cf9bad81:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
+      - name: Restore complete authored runtime and apply parity layer
+        run: |
+          git show 20e3ce1299bad39f397fac7fe414e699cf9bad81:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
+          python3 platform/ios/vehicle-core/apply_runtime_mass_parity.py platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
       - name: Toolchain info
         run: |
           xcodebuild -version
