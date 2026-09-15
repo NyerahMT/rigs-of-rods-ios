@@ -26,10 +26,10 @@ jobs:
 
       - name: Restore runtime and apply upstream minimass parity
         run: |
-          # Restore the known-good runtime source from immediately before the
-          # diagnostic mass-parity experiment, then apply RoR's built-in
-          # DEFAULT_MINIMASS instead of the portable 0.25 kg floor.
-          git show b150dca0ecbe946265baa4d49f0da16638cb0f44:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
+          # The branch currently carries a placeholder from the aborted parity
+          # experiment. Restore the last complete authored runtime, then apply
+          # RoR's DEFAULT_MINIMASS in the build workspace.
+          git show 648a191273d78580d0c6fc664cf9e73b18a0931d:platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp > platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp
           python3 - <<'PY'
           from pathlib import Path
           p=Path('platform/ios/vehicle-core/AuthoredVehicleRuntime.cpp')
@@ -74,9 +74,6 @@ jobs:
 
       - name: Cross-compile upstream RoR RigDef for iPhone
         run: bash platform/ios/ror-native/build-rigdef-ios.sh build/ror-native-rigdef-ios
-
-      - name: Inject on-device physics diagnostics
-        run: python3 platform/ios/app/apply_physics_debug.py platform/ios/app/OgreGameApp.mm
 
       - name: Build unsigned OGRE game-view iPhone IPA
         run: platform/ios/app/build-ipa.sh build/vehicle-core-ios build/ios-app build/ogre-ios
