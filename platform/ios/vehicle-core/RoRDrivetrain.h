@@ -1,13 +1,20 @@
 #pragma once
 
+#include <string>
 #include <vector>
 
 namespace RoR { namespace IOSVehicleCore {
 
+struct RoRTorqueCurveSample
+{
+    float rpm = 0.0f;
+    float torque_multiplier = 0.0f;
+};
+
 struct RoRDrivetrainConfig
 {
-    float shift_down_rpm = 1000.0f; // Engine::m_engine_min_rpm
-    float shift_up_rpm = 2500.0f;   // Engine::m_engine_max_rpm
+    float shift_down_rpm = 1000.0f;
+    float shift_up_rpm = 2500.0f;
     float engine_torque = 1000.0f;
     float differential_ratio = 1.0f;
     float reverse_gear_ratio = 1.0f;
@@ -16,18 +23,21 @@ struct RoRDrivetrainConfig
 
     float engine_inertia = 10.0f;
     char engine_type = 't';
-    // Negative means let Engine::SetEngineOptions() select the type default:
-    // 5000 for car/electric, 10000 for truck.
     float clutch_force = -1.0f;
     float shift_time = 0.5f;
     float clutch_time = 0.2f;
     float post_shift_time = 0.2f;
-    float idle_rpm = -1.0f; // <=0 => min(engine_min_rpm, 800)
+    float idle_rpm = -1.0f;
     float stall_rpm = 300.0f;
     float max_idle_mixture = 0.1f;
     float min_idle_mixture = 0.0f;
-    // Positive authored magnitude; <=0 => engine_torque/5 like Engine ctor.
     float engine_braking_torque = -1.0f;
+
+    // RigDef::TorqueCurve. Custom samples execute locally with the same Ogre
+    // SimpleSpline math as desktop RoR. A predefined model name is preserved
+    // separately because it depends on the external torque_models.cfg resource.
+    std::vector<RoRTorqueCurveSample> torque_curve_samples;
+    std::string predefined_torque_model;
 };
 
 struct RoRDrivetrainTelemetry
@@ -45,9 +55,6 @@ struct RoRDrivetrainTelemetry
     bool post_shifting = false;
 };
 
-/// Renderer-independent mechanical land-vehicle engine path extracted from
-/// RoR::Engine. The runtime starts it through the same effective state as
-/// Engine::startEngine() in automatic mode: running, DRIVE selected, first gear.
 class RoRDrivetrain
 {
 public:
@@ -64,6 +71,10 @@ public:
     float DriveRatio() const;
     int Gear() const;
     const RoRDrivetrainTelemetry& Telemetry() const;
+
+    // Public for the parity probe: this is TorqueCurve::getEngineTorque(rpm),
+    // i.e. a multiplier before base engine torque is applied.
+    float TorqueMultiplier(float rpm) const;
 
 private:
     float EnginePower(float rpm) const;
