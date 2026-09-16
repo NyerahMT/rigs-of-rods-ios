@@ -62,6 +62,14 @@ struct NodeCoreState
     bool immovable = false;
 };
 
+enum class ShockModel
+{
+    None,
+    Shock1,
+    Shock2,
+    Shock3
+};
+
 struct BeamCoreState
 {
     float rest_length = 1.0f;
@@ -69,24 +77,55 @@ struct BeamCoreState
     float damping = 0.0f;
     float stress = 0.0f;
 
-    // RoR's generated wheel spokes and authored `shocks` are SHOCK1-bounded
-    // beams. Authored shocks remember the beam-default spring/damper that was
-    // active when the shock was parsed; those values become the hard bump-stop
-    // target after a bound is exceeded. Generated wheel spokes leave these at
-    // zero and intentionally fall back to DEFAULT_SPRING/DEFAULT_DAMP.
+    // RoR's generated wheel spokes and classic authored `shocks` are SHOCK1
+    // bounded beams. The advanced models below mirror shock_t fields consumed
+    // by Actor::CalcShocks2()/CalcShocks3().
     bool bounded = false;
+    ShockModel shock_model = ShockModel::None;
+    bool soft_bump = false;
     float shortbound = 0.0f;
     float longbound = 0.0f;
-    float bump_spring = 0.0f;
-    float bump_damping = 0.0f;
+    float bump_spring = 0.0f;   // shock_t::sbd_spring
+    float bump_damping = 0.0f;  // shock_t::sbd_damp
+
+    // SHOCK2 + SHOCK3 asymmetric base spring/damper values.
+    float spring_in = 0.0f;
+    float damp_in = 0.0f;
+    float spring_out = 0.0f;
+    float damp_out = 0.0f;
+
+    // SHOCK2 progressive terms.
+    float progress_spring_in = 0.0f;
+    float progress_damp_in = 0.0f;
+    float progress_spring_out = 0.0f;
+    float progress_damp_out = 0.0f;
+
+    // SHOCK3 digressive/velocity-split damping terms. These are multipliers of
+    // damp_in/damp_out exactly like shock_t::dslow*/dfast* upstream.
+    float split_vel_in = 0.0f;
+    float damp_in_slow = 0.0f;
+    float damp_in_fast = 0.0f;
+    float split_vel_out = 0.0f;
+    float damp_out_slow = 0.0f;
+    float damp_out_fast = 0.0f;
+};
+
+struct ShockCoefficients
+{
+    float spring = 0.0f;
+    float damping = 0.0f;
 };
 
 // Exact scalar spring/damper law used in Actor::CalcBeams().
 float CalcBeamStress(float length_error, float relative_speed, float spring, float damping);
 
+// Portable equivalents of Actor::CalcShocks2()/CalcShocks3(). Exposed so the
+// conformance probes can compare the coefficient law directly against desktop.
+ShockCoefficients CalcShock2Coefficients(const BeamCoreState& beam, float length_error, float relative_speed);
+ShockCoefficients CalcShock3Coefficients(const BeamCoreState& beam, float length_error, float relative_speed);
+
 // Applies equal/opposite force to the two nodes using RoR's beam direction math,
-// including SHOCK1 hard-bump interpolation for generated wheel beams and authored
-// suspension shocks.
+// including SHOCK1/SHOCK2/SHOCK3 suspension semantics.
 void ApplyBeamForce(NodeCoreState& node1, NodeCoreState& node2, BeamCoreState& beam);
 
 // Base semi-implicit Euler integration from Actor::CalcNodes().
