@@ -27,7 +27,7 @@ def once(old: str, new: str, label: str) -> None:
 
 once(
     '#include "AuthoredVehicleRuntime.h"\n',
-    '#include "AuthoredVehicleRuntime.h"\n#include "NativeRigDefBridge.h"\n',
+    '#include "AuthoredVehicleRuntime.h"\n#include "NativeCanonicalPhysics.h"\n',
     "native RigDef include",
 )
 
@@ -37,7 +37,7 @@ once(
 ''',
     '''std::string UpstreamPhysicsDefinition(const std::string& truck_text)
 {
-    const std::string canonical = RoR::IOSNative::CanonicalPhysicsRigDef(truck_text);
+    const std::string canonical = RoR::IOSNative::CanonicalPhysicsRigDefExact(truck_text);
     return canonical.empty() ? truck_text : canonical;
 }
 
@@ -54,4 +54,4 @@ once(
 )
 
 path.write_text(text)
-print('routed simulation physics through upstream RigDef::Parser canonicalization; visuals retain raw authored text')
+print('routed simulation physics through lossless upstream RigDef canonicalization; visuals retain raw authored text')
