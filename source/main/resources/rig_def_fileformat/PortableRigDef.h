@@ -33,15 +33,23 @@ struct Hydro { std::string node_a,node_b; float lengthening_factor=0; std::strin
 struct Shock {
     std::string node_a,node_b;
     bool shock2=false;
-    // Classic `shocks` values. For `shocks2`, spring/damping mirror the
+    bool shock3=false;
+    // Classic `shocks` values. For advanced shocks, spring/damping mirror the
     // compression-side base values for compatibility with older callers.
     float spring=0,damping=0,short_bound=0,long_bound=0,precompression=1;
     // BeamDefaults active on the line. Upstream stores these as shock_t::sbd_*
-    // and uses them as the hard bump-stop target once SHOCK1/2 bounds are exceeded.
+    // and uses them as the hard bump-stop target once limits are exceeded.
     float bump_spring=9000000,bump_damping=12000;
-    // Full shocks2 asymmetric/progressive data.
-    float spring_in=0,damp_in=0,progress_spring_in=0,progress_damp_in=0;
-    float spring_out=0,damp_out=0,progress_spring_out=0,progress_damp_out=0;
+    // SHOCK2/SHOCK3 asymmetric base values.
+    float spring_in=0,damp_in=0;
+    float spring_out=0,damp_out=0;
+    // SHOCK2 progressive factors.
+    float progress_spring_in=0,progress_damp_in=0;
+    float progress_spring_out=0,progress_damp_out=0;
+    // SHOCK3 slow/fast damping split parameters. The slow/fast fields are
+    // multipliers applied to damp_in/damp_out by Actor::CalcShocks3().
+    float damp_in_slow=0,split_vel_in=0,damp_in_fast=0;
+    float damp_out_slow=0,split_vel_out=0,damp_out_fast=0;
     std::string options;
 };
 struct Wheel { bool wheels2=false; float rim_radius=0,tire_radius=0,width=0; int num_rays=0; std::string axis_node_0,axis_node_1,rigidity_node; int braking=0,propulsion=0; std::string reference_arm_node; float mass=0,rim_spring=0,rim_damping=0,tire_spring=0,tire_damping=0; };
