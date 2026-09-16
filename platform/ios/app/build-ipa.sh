@@ -89,6 +89,7 @@ for REQUIRED in \
     "$ROOT/platform/ios/ogre/transcode_dxt_dds_for_ios.py" \
     "$ROOT/platform/ios/app/RoREngineAudio.h" \
     "$ROOT/platform/ios/app/RoREngineAudio.mm" \
+    "$ROOT/platform/ios/app/apply_render_interpolation.py" \
     "$ROOT/platform/ios/app/prepare_audio_game_source.py"; do
     if [[ -z "$REQUIRED" || ! -f "$REQUIRED" ]]; then
         echo "error: required iOS/OGRE/RoR input missing: $REQUIRED" >&2
@@ -174,10 +175,14 @@ cp "$ROOT/platform/ios/ogre/RoRGame.metal" "$APP_DIR/OgreMedia/Main/RoRGame.meta
     "$APP_DIR/OgreMedia/Main/OgreUnifiedShader.h"
 
 # Generate the controller source with the audio bridge explicitly connected to
-# vehicle telemetry. The transform is strict and fails if its anchors drift.
+# vehicle telemetry, then install the 60 FPS render bridge. Both transforms are
+# strict and fail the build immediately if their anchors drift.
 AUDIO_GAME_SRC="$OUT_DIR/OgreGameApp.audio.mm"
 python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \
     "$ROOT/platform/ios/app/OgreGameApp.mm" "$AUDIO_GAME_SRC"
+python3 "$ROOT/platform/ios/app/apply_render_interpolation.py" "$AUDIO_GAME_SRC"
+grep -q 'kSnapshotPublishHz = 120.0' "$AUDIO_GAME_SRC"
+grep -q 'flexbody_node_cache' "$AUDIO_GAME_SRC"
 
 "$CXX" \
     -arch arm64 \
