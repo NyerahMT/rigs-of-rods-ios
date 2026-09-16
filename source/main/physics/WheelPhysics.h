@@ -15,6 +15,8 @@ namespace RoR {
 struct WheelCoreState
 {
     float radius = 0.5f;
+    // Despite the historical portable name, this mirrors wheel_t::wh_mass:
+    // the SUM of masses of wheel.wh_nodes, not a rigid-body moment of inertia.
     float rotational_mass = 1.0f;
     float speed = 0.0f;              //!< Linear tread speed in m/s, matching wheel_t::wh_speed
     float average_speed = 0.0f;      //!< Smoothed speed used by RoR braking
@@ -36,6 +38,11 @@ struct WheelStepResult
     float measured_speed = 0.0f;
     float applied_torque = 0.0f;
 };
+
+/// Exact ActorSpawner finalization rule for wheel_t::wh_mass: sum the masses of
+/// every node in wheel.wh_nodes. For wheels2 this intentionally excludes rim
+/// nodes, because only the tyre ring is stored in wh_nodes upstream.
+float CalcWheelNodeMass(const std::vector<WheelNodeBinding>& bindings);
 
 /// RoR's braking estimate from CalcWheels(). The return value is the torque
 /// increment to add to wheel.torque for this physics step.
