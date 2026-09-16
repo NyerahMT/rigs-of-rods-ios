@@ -23,8 +23,6 @@ void RoRDrivetrain::Configure(const RoRDrivetrainConfig& config)
         ? std::fabs(m_config.differential_ratio) : 1.0f;
     m_config.engine_inertia = std::max(1.0e-4f, m_config.engine_inertia);
 
-    // Engine::SetEngineOptions(): negative clutch force selects an engine-type
-    // default. Car and electric use 5000; the default truck engine uses 10000.
     if (m_config.clutch_force < 0.0f)
         m_config.clutch_force = (m_config.engine_type == 'c' || m_config.engine_type == 'e') ? 5000.0f : 10000.0f;
 
@@ -48,7 +46,6 @@ void RoRDrivetrain::Configure(const RoRDrivetrainConfig& config)
 void RoRDrivetrain::Reset()
 {
     m_state = RoRDrivetrainTelemetry();
-    // Equivalent to Engine::startEngine() with AUTO selected.
     m_state.gear = m_config.forward_gears.empty() ? 0 : 1;
     m_state.running = true;
     m_state.engine_rpm = m_idle_rpm;
@@ -85,14 +82,57 @@ float RoRDrivetrain::InternalRatio(int gear) const
     return m_config.forward_gears[static_cast<std::size_t>(gear - 1)] * m_config.differential_ratio;
 }
 
+float RoRDrivetrain::TorqueMultiplier(float rpm) const
+{
+    const std::vector<RoRTorqueCurveSample>& points = m_config.torque_curve_samples;
+    if (points.empty())
+        return 1.0f;
+    if (points.size() == 1)
+        return points.front().torque_multiplier;
+
+    const float min_rpm = points.front().rpm;
+    const float max_rpm = points.back().rpm;
+    if (min_rpm == max_rpm)
+        return points.front().torque_multiplier;
+
+    // RoR::TorqueCurve first converts RPM to a global [0,1] spline parameter,
+    // then Ogre::SimpleSpline::interpolate(t) assumes the control points are
+    // evenly spaced. Preserve that exact behavior rather than doing RPM-local
+    // linear interpolation between samples.
+    const float global_t = Clamp((rpm - min_rpm) / (max_rpm - min_rpm), 0.0f, 1.0f);
+    const float fseg = global_t * static_cast<float>(points.size() - 1u);
+    std::size_t segment = static_cast<std::size_t>(fseg);
+    if (segment >= points.size() - 1u)
+        return points.back().torque_multiplier;
+    const float t = fseg - static_cast<float>(segment);
+    if (t == 0.0f) return points[segment].torque_multiplier;
+    if (t == 1.0f) return points[segment + 1u].torque_multiplier;
+
+    const auto tangent = [&points](std::size_t i)
+    {
+        if (i == 0u)
+            return 0.5f * (points[1u].torque_multiplier - points[0u].torque_multiplier);
+        if (i + 1u == points.size())
+            return 0.5f * (points[i].torque_multiplier - points[i - 1u].torque_multiplier);
+        return 0.5f * (points[i + 1u].torque_multiplier - points[i - 1u].torque_multiplier);
+    };
+
+    // Y component of Ogre's Hermite matrix used by SimpleSpline.
+    const float t2 = t * t;
+    const float t3 = t2 * t;
+    const float h00 = 2.0f * t3 - 3.0f * t2 + 1.0f;
+    const float h01 = -2.0f * t3 + 3.0f * t2;
+    const float h10 = t3 - 2.0f * t2 + t;
+    const float h11 = t3 - t2;
+    return h00 * points[segment].torque_multiplier +
+           h01 * points[segment + 1u].torque_multiplier +
+           h10 * tangent(segment) +
+           h11 * tangent(segment + 1u);
+}
+
 float RoRDrivetrain::EnginePower(float rpm) const
 {
-    // The stock Engine multiplies base torque by TorqueCurve::getEngineTorque().
-    // Until torquecurve definitions are ported in this same workstream, preserve
-    // the base-torque portion exactly and let UpdateEngine's 1.25*max-RPM gate
-    // provide the upstream hard limiter instead of inventing a linear fade.
-    (void)rpm;
-    return m_config.engine_torque;
+    return m_config.engine_torque * TorqueMultiplier(rpm);
 }
 
 float RoRDrivetrain::IdleMixture() const
@@ -116,9 +156,6 @@ void RoRDrivetrain::RequestAutomaticShift()
     if (m_state.shifting || m_state.post_shifting || m_state.gear <= 0) return;
     const int top = static_cast<int>(m_config.forward_gears.size());
 
-    // Primary AUTO conditions from Engine::UpdateEngine(). The desktop code has
-    // further kickdown/history heuristics, but these are the direct redline and
-    // low-RPM shift conditions that define normal acceleration/coast behavior.
     if (m_state.engine_rpm > m_config.shift_up_rpm - 100.0f &&
         m_state.gear < top && m_state.clutch > 0.99f)
     {
@@ -253,9 +290,6 @@ void RoRDrivetrain::UpdateAutoClutch(float acc)
             std::min(m_cur_acc, 0.9f) * power_ratio;
         const float torque_diff = std::min(engine_torque, std::fabs(reaction_torque));
 
-        // Keep the sign behavior from Engine.cpp. Desktop divides by reTorque,
-        // not abs(reTorque); a negative reaction therefore does not force clutch
-        // engagement when max() is applied below.
         if (std::fabs(reaction_torque) > 1.0e-8f)
         {
             const float clutch = torque_diff / reaction_torque;
@@ -286,8 +320,6 @@ void RoRDrivetrain::Step(float throttle, float wheel_spin_rpm, float dt)
     const float drive_ratio = m_state.drive_ratio;
     const float acc = std::max(IdleMixture(), m_cur_acc);
 
-    // Engine::UpdateEngine() mechanical core: compression braking, combustion,
-    // previous-step clutch load, then inertia integration.
     float total_torque = m_braking_torque *
         (m_state.engine_rpm / m_config.shift_up_rpm) * (1.0f - m_cur_acc);
 
@@ -306,7 +338,6 @@ void RoRDrivetrain::Step(float throttle, float wheel_spin_rpm, float dt)
 
     m_state.engine_rpm += dt * total_torque / m_config.engine_inertia;
 
-    // Update clutch torque after engine integration, exactly like Engine.cpp.
     if (m_state.gear != 0 && std::fabs(drive_ratio) > 1.0e-6f)
     {
         const float first_ratio = std::fabs(InternalRatio(1));
