@@ -99,7 +99,7 @@ globals
 engine
 1800,4500,840,2.95,3.3,5.0,3.35,2.1,1.4,1.0,-1
 engoption
-0.075,c,1000,0.3,0.6,0.3
+0.075,c,1000,0.30,0.60,0.25,550,925,0.14,0.03,175
 nodes
 0,-1.0,0.5,-0.7
 1,-1.0,0.5,0.7
@@ -129,9 +129,14 @@ end
     Require(Near(legacy.engoption.inertia, .075f), "engoption inertia");
     Require(legacy.engoption.type == 'c', "engoption engine type");
     Require(Near(legacy.engoption.clutch_force, 1000.0f), "engoption clutch force");
-    Require(Near(legacy.engoption.shift_time, .3f), "engoption shift time");
-    Require(Near(legacy.engoption.clutch_time, .6f), "engoption clutch time");
-    Require(Near(legacy.engoption.post_shift_time, .3f), "engoption post-shift time");
+    Require(Near(legacy.engoption.shift_time, .30f), "engoption authored shift time");
+    Require(Near(legacy.engoption.clutch_time, .60f), "engoption authored clutch time");
+    Require(Near(legacy.engoption.post_shift_time, .25f), "engoption post-shift time");
+    Require(Near(legacy.engoption.stall_rpm, 550.0f), "engoption stall RPM");
+    Require(Near(legacy.engoption.idle_rpm, 925.0f), "engoption idle RPM");
+    Require(Near(legacy.engoption.max_idle_mixture, .14f), "engoption max idle mixture");
+    Require(Near(legacy.engoption.min_idle_mixture, .03f), "engoption min idle mixture");
+    Require(Near(legacy.engoption.braking_torque, 175.0f), "engoption braking torque");
     Require(legacy.wheels.size() == 1, "meshwheels2 parsed as a physical wheel");
     Require(!legacy.wheels[0].wheels2, "meshwheels2 uses upstream two-node-per-ray topology");
     Require(Near(legacy.wheels[0].tire_radius, .335f) && Near(legacy.wheels[0].rim_radius, .20f), "meshwheels2 radius order");
