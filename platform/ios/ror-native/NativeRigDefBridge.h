@@ -39,5 +39,11 @@ RigDefSummary ParseRigDef(const std::string& truck_text);
 // remain visible to the summary/audit and are ported subsystem-by-subsystem.
 std::string CanonicalPhysicsRigDef(const std::string& truck_text);
 
+// Transitional companion for the full SHOCK3 port. It emits the SHOCK3 section
+// from the same upstream RigDef document so the app can splice it immediately
+// before CanonicalPhysicsRigDef()'s final `end` marker without teaching the
+// lightweight compatibility parser any legacy import semantics itself.
+std::string CanonicalShock3Section(const std::string& truck_text);
+
 } // namespace IOSNative
 } // namespace RoR
