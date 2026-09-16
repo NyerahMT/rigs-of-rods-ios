@@ -14,6 +14,17 @@ std::string CanonicalPhysicsRigDefExact(const std::string& truck_text)
     if (canonical.empty() || truck_text.empty())
         return canonical;
 
+    // CanonicalPhysicsRigDef() predates the SHOCK3 portable solver. Preserve its
+    // existing stable serializer and splice the SHOCK3 section produced by the
+    // same upstream RigDef document immediately before the final `end` marker.
+    const std::string shock3 = CanonicalShock3Section(truck_text);
+    if (!shock3.empty())
+    {
+        const std::size_t end_marker = canonical.rfind("end\n");
+        if (end_marker != std::string::npos)
+            canonical.insert(end_marker, shock3);
+    }
+
     RigDef::Parser parser;
     parser.Prepare();
     std::istringstream input(truck_text);
@@ -37,8 +48,8 @@ std::string CanonicalPhysicsRigDefExact(const std::string& truck_text)
     if (value_end == std::string::npos)
         return canonical;
 
-    // PortableRigDef now consumes the optional second minimass argument using
-    // the same serialized letter as upstream MinimassOption::l_SKIP_LOADED.
+    // PortableRigDef consumes the optional second minimass argument using the
+    // same serialized letter as upstream MinimassOption::l_SKIP_LOADED.
     canonical.insert(value_end, ", l");
     return canonical;
 }
