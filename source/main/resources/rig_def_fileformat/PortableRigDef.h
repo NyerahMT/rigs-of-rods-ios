@@ -55,6 +55,17 @@ struct Engine {
     float neutral_gear_ratio=1;
     std::vector<float> gear_ratios;
 };
+struct TorqueCurveSample {
+    float rpm=0.0f;
+    float torque_multiplier=0.0f;
+};
+struct TorqueCurve {
+    bool present=false;
+    // Upstream accepts either one predefined model name OR custom rpm,multiplier
+    // samples. Named models depend on the external torque_models.cfg resource.
+    std::string predefined_model;
+    std::vector<TorqueCurveSample> samples;
+};
 // Mirrors upstream RigDef::Engoption token-for-token. ActorSpawner historically
 // passes shift_time as Engine::SetEngineOptions()'s clutch-time argument and
 // clutch_time as its shift-time argument; that odd swap is preserved later in
@@ -85,6 +96,7 @@ struct Document {
     std::vector<Shock> shocks;
     std::vector<Wheel> wheels;
     Engine engine;
+    TorqueCurve torque_curve;
     EngOption engoption;
     Brakes brakes;
     std::vector<std::string> contacters;
