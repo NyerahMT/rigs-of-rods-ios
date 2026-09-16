@@ -22,10 +22,6 @@ std::string CanonicalPhysicsRigDefExact(const std::string& truck_text)
             canonical.insert(end_marker, shock3);
     }
 
-    // The original transitional serializer only emitted engoption parameters
-    // 1-6. Replace that single-value line with all eleven values parsed by the
-    // real upstream RigDef document. If an older serializer omitted the section,
-    // insert it before `end` instead.
     const std::string full_engoption = CanonicalEngOptionSection(truck_text);
     if (!full_engoption.empty())
     {
@@ -43,6 +39,18 @@ std::string CanonicalPhysicsRigDefExact(const std::string& truck_text)
             if (end_marker != std::string::npos)
                 canonical.insert(end_marker, full_engoption);
         }
+    }
+
+    // The legacy canonical serializer deliberately omitted torquecurve. Preserve
+    // the exact upstream section now that the portable drivetrain implements the
+    // same SimpleSpline custom-curve semantics. Named predefined models are kept
+    // intact too so they remain auditable until torque_models.cfg is packaged.
+    const std::string torque_curve = CanonicalTorqueCurveSection(truck_text);
+    if (!torque_curve.empty())
+    {
+        const std::size_t end_marker = canonical.rfind("end\n");
+        if (end_marker != std::string::npos)
+            canonical.insert(end_marker, torque_curve);
     }
 
     RigDef::Parser parser;
