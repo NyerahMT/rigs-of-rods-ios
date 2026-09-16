@@ -230,25 +230,31 @@ one('            b.virtual_beam = false;\n',
 
 runtime.write_text(s)
 
-# The build generates a Bandit-specific Objective-C++ controller after the base
-# audio/flexbody transform. Chain the meshwheel renderer transform into that same
-# deterministic source-generation step without maintaining another fork of the app.
+# The build generates a vehicle-specific Objective-C++ controller after the base
+# audio/flexbody transform. Chain the meshwheel renderer first, then the shared
+# 60 FPS render bridge so interpolation also covers the generated wheel visuals.
 build_ipa = root / "platform/ios/app/build-ipa.sh"
 b = build_ipa.read_text()
 needle = '''python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \\
     "$ROOT/platform/ios/app/OgreGameApp.mm" "$AUDIO_GAME_SRC"
+python3 "$ROOT/platform/ios/app/apply_render_interpolation.py" "$AUDIO_GAME_SRC"
+grep -q 'kSnapshotPublishHz = 120.0' "$AUDIO_GAME_SRC"
+grep -q 'flexbody_node_cache' "$AUDIO_GAME_SRC"
 
 "$CXX" \\
 '''
 replacement = '''python3 "$ROOT/platform/ios/app/prepare_audio_game_source.py" \\
     "$ROOT/platform/ios/app/OgreGameApp.mm" "$AUDIO_GAME_SRC"
 python3 "$ROOT/platform/ios/app/apply_meshwheel_renderer.py" "$AUDIO_GAME_SRC"
+python3 "$ROOT/platform/ios/app/apply_render_interpolation.py" "$AUDIO_GAME_SRC"
+grep -q 'kSnapshotPublishHz = 120.0' "$AUDIO_GAME_SRC"
+grep -q 'flexbody_node_cache' "$AUDIO_GAME_SRC"
 
 "$CXX" \\
 '''
 if replacement not in b:
     if b.count(needle) != 1:
-        raise SystemExit("build-ipa meshwheel transform anchor drifted")
+        raise SystemExit("build-ipa meshwheel/render transform anchor drifted")
     b = b.replace(needle, replacement, 1)
 build_ipa.write_text(b)
 
@@ -274,4 +280,4 @@ if probe_marker not in c:
     c = c.replace(tail, repl, 1)
 cmake.write_text(c)
 
-print('applied upstream RoR generated-wheel topology, bounds, axis ordering, virtual-beam mass, renderer hook, and probe')
+print('applied upstream RoR generated-wheel topology, bounds, axis ordering, virtual-beam mass, meshwheel renderer, 60 FPS render bridge hook, and probe')
