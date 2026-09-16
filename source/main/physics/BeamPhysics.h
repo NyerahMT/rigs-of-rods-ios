@@ -112,8 +112,12 @@ struct BeamCoreState
 
 struct ShockCoefficients
 {
-    float spring = 0.0f;
-    float damping = 0.0f;
+    float spring;
+    float damping;
+
+    ShockCoefficients(): spring(0.0f), damping(0.0f) {}
+    ShockCoefficients(float spring_value, float damping_value):
+        spring(spring_value), damping(damping_value) {}
 };
 
 // Exact scalar spring/damper law used in Actor::CalcBeams().
