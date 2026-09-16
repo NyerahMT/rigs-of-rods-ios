@@ -55,6 +55,7 @@ SOURCES=(
     "$ROOT/platform/ios/ror-native/NativeRigDefBridge.cpp"
     "$ROOT/platform/ios/ror-native/NativeCanonicalPhysics.cpp"
     "$ROOT/platform/ios/ror-native/NativeShock3Bridge.cpp"
+    "$ROOT/platform/ios/ror-native/NativeEngOptionBridge.cpp"
     "$ROOT/platform/ios/ror-native/NativeSpawnerAudit.cpp"
     "$ROOT/source/main/resources/rig_def_fileformat/RigDef_File.cpp"
     "$ROOT/source/main/resources/rig_def_fileformat/RigDef_Node.cpp"
@@ -77,4 +78,4 @@ LIB="$OUT/libror_native_rigdef.a"
 file "$LIB"
 lipo -info "$LIB" | grep -q arm64
 printf '%s\n' "$FMT_COMMIT" > "$OUT/FMT_PINNED_COMMIT.txt"
-echo "Built upstream RoR RigDef parser + canonical physics/SHOCK3 + spawn topology audit for iPhone ARM64: $LIB"
+echo "Built upstream RoR RigDef parser + canonical physics/SHOCK3/engoption + spawn topology audit for iPhone ARM64: $LIB"
