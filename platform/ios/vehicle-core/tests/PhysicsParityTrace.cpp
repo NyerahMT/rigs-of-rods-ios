@@ -14,7 +14,8 @@
 
 using RoR::IOSVehicleCore::AuthoredVehicleRuntime;
 using RoR::IOSVehicleCore::AuthoredVehicleTelemetry;
-using RoR::IOSVehicleCore::NodeCoreState;
+using RoR::NodeCoreState;
+using RoR::PhysicsVec3;
 
 namespace {
 std::string ReadFile(const char* path)
@@ -50,7 +51,7 @@ void ControlsForStep(std::uint64_t step, float& steering, float& throttle, float
     }
 }
 
-void WriteVec(std::ostream& out, const RoR::IOSVehicleCore::PhysicsVec3& v)
+void WriteVec(std::ostream& out, const PhysicsVec3& v)
 {
     out << '[' << v.x << ',' << v.y << ',' << v.z << ']';
 }
