@@ -44,8 +44,6 @@ SpawnTopologySummary CalcSpawnTopology(const std::string& truck_text)
     const auto& m = doc->root_module;
     out.ready = true;
 
-    // Keep these formulas in lockstep with upstream
-    // ActorSpawner::CalcMemoryRequirements().
     out.authored_nodes = m->nodes.size();
     out.authored_beams = m->beams.size();
     out.spawned_nodes = m->nodes.size();
@@ -70,24 +68,12 @@ SpawnTopologySummary CalcSpawnTopology(const std::string& truck_text)
     out.spawned_beams += out.shocks;
     out.spawned_beams += m->commands2.size();
 
-    // wheels/meshwheels/meshwheels2: BuildWheelObjectAndNodes + BuildWheelBeams
-    // => 2 nodes/ray and 8 beams/ray, with one rigidity beam/ray when present.
     CountWheelFamily(m->wheels,      2u, 8u, out);
     CountWheelFamily(m->meshwheels,  2u, 8u, out);
     CountWheelFamily(m->meshwheels2, 2u, 8u, out);
-
-    // wheels2: 4 nodes/ray, 10 rim + 14 tyre beams/ray, plus rigidity.
     CountWheelFamily(m->wheels2, 4u, 24u, out);
-
-    // flexbodywheels: 4 nodes/ray, 8 rim + 10 tyre + 2 support beams/ray,
-    // plus one rigidity beam/ray when authored.
     CountWheelFamily(m->flexbodywheels, 4u, 20u, out);
 
-    // Keep a visible count of physics-bearing sections that the portable actor
-    // still cannot claim as upstream-equivalent. This number should converge to
-    // zero as the following parity workstreams land. SHOCK3 is intentionally
-    // absent here: the portable core now preserves and executes its full
-    // asymmetric velocity-split force law.
     out.unsupported_physics_sections += !m->ties.empty();
     out.unsupported_physics_sections += !m->ropes.empty();
     out.unsupported_physics_sections += !m->triggers.empty();
@@ -98,7 +84,21 @@ SpawnTopologySummary CalcSpawnTopology(const std::string& truck_text)
     out.unsupported_physics_sections += !m->flexbodywheels.empty();
     out.unsupported_physics_sections += !m->axles.empty() || !m->interaxles.empty();
     out.unsupported_physics_sections += !m->transfercase.empty();
-    out.unsupported_physics_sections += !m->torquecurve.empty();
+
+    // Custom torquecurves are now executed with the same Ogre::SimpleSpline
+    // coefficient path as desktop. Predefined named models still depend on the
+    // external torque_models.cfg resource, so keep only those audit-visible.
+    bool has_unresolved_named_torque_model = false;
+    for (const RigDef::TorqueCurve& curve : m->torquecurve)
+    {
+        if (!curve.predefined_func_name.empty())
+        {
+            has_unresolved_named_torque_model = true;
+            break;
+        }
+    }
+    out.unsupported_physics_sections += has_unresolved_named_torque_model;
+
     out.unsupported_physics_sections += !m->wings.empty() || !m->fusedrag.empty() || !m->airbrakes.empty();
 
     return out;
