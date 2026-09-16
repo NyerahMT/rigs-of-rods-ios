@@ -100,6 +100,10 @@ engine
 1800,4500,840,2.95,3.3,5.0,3.35,2.1,1.4,1.0,-1
 engoption
 0.075,c,1000,0.30,0.60,0.25,550,925,0.14,0.03,175
+torquecurve
+1000,0.50
+2000,1.00
+4000,0.80
 nodes
 0,-1.0,0.5,-0.7
 1,-1.0,0.5,0.7
@@ -137,6 +141,11 @@ end
     Require(Near(legacy.engoption.max_idle_mixture, .14f), "engoption max idle mixture");
     Require(Near(legacy.engoption.min_idle_mixture, .03f), "engoption min idle mixture");
     Require(Near(legacy.engoption.braking_torque, 175.0f), "engoption braking torque");
+    Require(legacy.torque_curve.present, "custom torquecurve parsed");
+    Require(legacy.torque_curve.predefined_model.empty(), "custom torquecurve not mislabeled predefined");
+    Require(legacy.torque_curve.samples.size() == 3, "all custom torquecurve samples retained");
+    Require(Near(legacy.torque_curve.samples[0].rpm, 1000.0f) && Near(legacy.torque_curve.samples[0].torque_multiplier, .50f), "first torque sample");
+    Require(Near(legacy.torque_curve.samples[2].rpm, 4000.0f) && Near(legacy.torque_curve.samples[2].torque_multiplier, .80f), "last torque sample");
     Require(legacy.wheels.size() == 1, "meshwheels2 parsed as a physical wheel");
     Require(!legacy.wheels[0].wheels2, "meshwheels2 uses upstream two-node-per-ray topology");
     Require(Near(legacy.wheels[0].tire_radius, .335f) && Near(legacy.wheels[0].rim_radius, .20f), "meshwheels2 radius order");
