@@ -20,6 +20,12 @@ struct RigDefSummary
     std::size_t props = 0;
     std::size_t flexbodies = 0;
     std::size_t wings = 0;
+
+    // Exact ActorSpawner::CalcMemoryRequirements topology counts for the
+    // supported physical sections. These include generated wheel nodes/beams,
+    // not just authored RigDef lines.
+    std::size_t spawned_nodes = 0;
+    std::size_t spawned_beams = 0;
 };
 
 // Runs the real upstream RigDef::Parser + SequentialImporter over raw .truck
