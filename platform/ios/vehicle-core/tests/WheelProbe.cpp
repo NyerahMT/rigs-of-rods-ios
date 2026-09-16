@@ -81,9 +81,14 @@ int main()
         bindings.push_back(binding);
     }
 
+    // ActorSpawner calculates wheel_t::wh_mass by summing wh_nodes after the
+    // node-mass pass. The helper must not substitute axle/rim/authored mass.
+    const float node_mass_sum = CalcWheelNodeMass(bindings);
+    Require(NearlyEqual(node_mass_sum, 96.0f), "wheel_t::wh_mass is not the exact wheel-node mass sum");
+
     WheelCoreState wheel{};
     wheel.radius = radius;
-    wheel.rotational_mass = 96.0f;
+    wheel.rotational_mass = node_mass_sum;
     wheel.speed = target_tread_speed;
     wheel.average_speed = target_tread_speed;
     wheel.torque = 2400.0f;
