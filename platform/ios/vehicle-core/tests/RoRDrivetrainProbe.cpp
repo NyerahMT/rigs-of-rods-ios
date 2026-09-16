@@ -25,6 +25,24 @@ bool Near(float a, float b, float epsilon = .01f)
 
 int main()
 {
+    // Verify the exact Y component produced by Ogre::SimpleSpline. With points
+    // (1000,.5), (2000,1.0), (4000,.8), RoR maps 1750 RPM to global t=.25,
+    // segment 0 at local t=.5. Open-spline tangents are .25 and .15, yielding
+    // .7625. A linear approximation would incorrectly return .75.
+    RoRDrivetrainConfig curve_config;
+    curve_config.forward_gears.push_back(1.0f);
+    RoRTorqueCurveSample p0; p0.rpm = 1000.0f; p0.torque_multiplier = 0.50f;
+    RoRTorqueCurveSample p1; p1.rpm = 2000.0f; p1.torque_multiplier = 1.00f;
+    RoRTorqueCurveSample p2; p2.rpm = 4000.0f; p2.torque_multiplier = 0.80f;
+    curve_config.torque_curve_samples.push_back(p0);
+    curve_config.torque_curve_samples.push_back(p1);
+    curve_config.torque_curve_samples.push_back(p2);
+    RoRDrivetrain curve_drive(curve_config);
+    Require(Near(curve_drive.TorqueMultiplier(500.0f), 0.50f, .0001f), "torque spline clamps below minimum RPM");
+    Require(Near(curve_drive.TorqueMultiplier(1750.0f), 0.7625f, .0001f), "torque spline differs from Ogre SimpleSpline Hermite result");
+    Require(Near(curve_drive.TorqueMultiplier(2500.0f), 1.00f, .0001f), "global spline midpoint does not hit middle control point");
+    Require(Near(curve_drive.TorqueMultiplier(5000.0f), 0.80f, .0001f), "torque spline clamps above maximum RPM");
+
     RoRDrivetrainConfig c;
     c.shift_down_rpm = 1000.0f;
     c.shift_up_rpm = 1500.0f;
@@ -37,7 +55,7 @@ int main()
 
     c.engine_inertia = 10.0f;
     c.engine_type = 'c';
-    c.clutch_force = -1.0f; // upstream car default => 5000
+    c.clutch_force = -1.0f;
     c.shift_time = 0.60f;
     c.clutch_time = 0.20f;
     c.post_shift_time = 0.30f;
@@ -53,9 +71,6 @@ int main()
     Require(Near(d.Telemetry().engine_rpm, 925.0f), "authored idle RPM reaches engine start state");
     Require(!d.Telemetry().shifting && !d.Telemetry().post_shifting, "engine starts outside shift state");
 
-    // Keep driveshaft just below gearbox speed. This gives the automatic clutch
-    // a small positive reaction torque, allowing it to reach full engagement
-    // exactly as Engine::UpdateEngine() does once RPM is above m_engine_min_rpm.
     int guard = 0;
     while (!d.Telemetry().shifting && guard++ < 10000)
     {
@@ -69,7 +84,7 @@ int main()
     Require(d.Telemetry().clutch > 0.99f, "automatic clutch reached full engagement before upshift");
 
     const float clutch_at_request = d.Telemetry().clutch;
-    for (int i = 0; i < 100; ++i) // 0.05 s < 0.20 s declutch phase
+    for (int i = 0; i < 100; ++i)
     {
         const float wheel = d.Telemetry().engine_rpm / std::max(1.0f, std::fabs(d.DriveRatio()));
         d.Step(1.0f, wheel, PHYSICS_DT);
@@ -110,7 +125,7 @@ int main()
     Require(std::isfinite(d.Telemetry().engine_rpm) && std::isfinite(d.OutputTorque()),
             "drivetrain remains finite through full timed shift");
 
-    std::cout << "RoR drivetrain parity probe passed: timed 1->2 shift at "
+    std::cout << "RoR drivetrain parity probe passed: spline + timed 1->2 shift at "
               << d.Telemetry().engine_rpm << " rpm\n";
     return EXIT_SUCCESS;
 }
