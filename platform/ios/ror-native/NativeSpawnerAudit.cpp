@@ -85,7 +85,9 @@ SpawnTopologySummary CalcSpawnTopology(const std::string& truck_text)
 
     // Keep a visible count of physics-bearing sections that the portable actor
     // still cannot claim as upstream-equivalent. This number should converge to
-    // zero as the following parity workstreams land.
+    // zero as the following parity workstreams land. SHOCK3 is intentionally
+    // absent here: the portable core now preserves and executes its full
+    // asymmetric velocity-split force law.
     out.unsupported_physics_sections += !m->ties.empty();
     out.unsupported_physics_sections += !m->ropes.empty();
     out.unsupported_physics_sections += !m->triggers.empty();
@@ -94,7 +96,6 @@ SpawnTopologySummary CalcSpawnTopology(const std::string& truck_text)
     out.unsupported_physics_sections += !m->commands2.empty();
     out.unsupported_physics_sections += !m->rotators.empty() || !m->rotators2.empty();
     out.unsupported_physics_sections += !m->flexbodywheels.empty();
-    out.unsupported_physics_sections += !m->shocks3.empty();
     out.unsupported_physics_sections += !m->axles.empty() || !m->interaxles.empty();
     out.unsupported_physics_sections += !m->transfercase.empty();
     out.unsupported_physics_sections += !m->torquecurve.empty();
