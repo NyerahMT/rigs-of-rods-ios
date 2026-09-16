@@ -28,6 +28,19 @@ float Length(const PhysicsVec3& value)
 }
 }
 
+float CalcWheelNodeMass(const std::vector<WheelNodeBinding>& bindings)
+{
+    // ActorSpawner finalization does this over wheel_t::wh_nodes after node mass
+    // recalculation. The portable bindings contain that same outer-node set.
+    float mass = 0.0f;
+    for (const WheelNodeBinding& binding : bindings)
+    {
+        if (binding.outer != nullptr)
+            mass += binding.outer->mass;
+    }
+    return mass;
+}
+
 float CalcWheelBrakeTorque(
     float wheel_speed,
     float average_speed,
