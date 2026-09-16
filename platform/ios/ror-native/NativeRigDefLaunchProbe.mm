@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 #include "NativeRigDefBridge.h"
+#include "NativeSpawnerAudit.h"
 
 // Transitional proof while the simulation still runs AuthoredVehicleRuntime:
 // execute the real desktop RoR parser against the exact bundled vehicle on
@@ -30,8 +31,9 @@ static void RoRNativeRigDefLaunchProbe()
             return;
         }
 
-        const RoR::IOSNative::RigDefSummary summary =
-            RoR::IOSNative::ParseRigDef(std::string(text.UTF8String));
+        const std::string truck(text.UTF8String);
+        const RoR::IOSNative::RigDefSummary summary = RoR::IOSNative::ParseRigDef(truck);
+        const RoR::IOSNative::SpawnTopologySummary spawn = RoR::IOSNative::CalcSpawnTopology(truck);
 
         NSLog(@"[RoR native] RigDef=%s nodes=%zu beams=%zu wheels=%zu engines=%zu axles=%zu shocks=%zu commands=%zu props=%zu flexbodies=%zu wings=%zu",
               summary.ready ? "YES" : "NO",
@@ -45,5 +47,14 @@ static void RoRNativeRigDefLaunchProbe()
               summary.props,
               summary.flexbodies,
               summary.wings);
+        NSLog(@"[RoR native] ActorSpawner topology=%s authored N%zu/B%zu -> spawned N%zu/B%zu wheels=%zu shocks=%zu unsupported-physics-sections=%zu",
+              spawn.ready ? "YES" : "NO",
+              spawn.authored_nodes,
+              spawn.authored_beams,
+              spawn.spawned_nodes,
+              spawn.spawned_beams,
+              spawn.wheels,
+              spawn.shocks,
+              spawn.unsupported_physics_sections);
     }
 }
