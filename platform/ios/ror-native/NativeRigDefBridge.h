@@ -28,11 +28,11 @@ struct RigDefSummary
 RigDefSummary ParseRigDef(const std::string& truck_text);
 std::string CanonicalPhysicsRigDef(const std::string& truck_text);
 std::string CanonicalShock3Section(const std::string& truck_text);
-
-// Emits the complete eleven-parameter RigDef::Engoption line from the upstream
-// parsed document. The older canonical serializer only carried parameters 1-6;
-// this companion preserves stall/idle RPM, idle mixtures and braking torque too.
 std::string CanonicalEngOptionSection(const std::string& truck_text);
+
+// Emits either the upstream predefined torque-model name or every authored
+// custom rpm,torque-multiplier sample from RigDef::TorqueCurve.
+std::string CanonicalTorqueCurveSection(const std::string& truck_text);
 
 } // namespace IOSNative
 } // namespace RoR
