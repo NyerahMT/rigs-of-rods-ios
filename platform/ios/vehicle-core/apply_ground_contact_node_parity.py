@@ -51,7 +51,7 @@ one(
         nodes.emplace_back();
         NodeCoreState& node = nodes.back();
         node.position = position;
-        node.mass = std::max(mass, 0.25f);
+        node.mass = mass;
         node.force = PhysicsVec3(0.0f, node.mass * DEFAULT_GRAVITY, 0.0f);
         return nodes.size() - 1;
     }
@@ -61,7 +61,9 @@ one(
         nodes.emplace_back();
         NodeCoreState& node = nodes.back();
         node.position = position;
-        node.mass = std::max(mass, 0.25f);
+        // Explicit generated-wheel masses are assigned directly upstream; do
+        // not reintroduce the old portable 0.25 kg floor here.
+        node.mass = mass;
         node.force = PhysicsVec3(0.0f, node.mass * DEFAULT_GRAVITY, 0.0f);
         const std::size_t index = nodes.size() - 1;
         if (ground_contact)
@@ -115,4 +117,4 @@ one(
 "all-node ground collision")
 
 p.write_text(s)
-print('matched RoR all-node terrain collision with node option c opt-out')
+print('matched RoR all-node terrain collision with node option c opt-out while preserving exact wheel masses')
