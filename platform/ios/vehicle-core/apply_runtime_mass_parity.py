@@ -9,6 +9,7 @@ if not args:
     raise SystemExit("usage: apply_runtime_mass_parity.py <AuthoredVehicleRuntime.cpp>")
 
 subprocess.check_call([sys.executable, str(here / "apply_runtime_mass_parity_base.py"), *args])
+subprocess.check_call([sys.executable, str(here / "apply_engoption_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_minimass_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_wheel_parity.py"), *args])
 subprocess.check_call([sys.executable, str(here / "apply_wheel_mass_parity.py"), *args])
