@@ -26,5 +26,12 @@ struct RigDefSummary
 // text. This is the same document model ActorSpawner consumes on desktop RoR.
 RigDefSummary ParseRigDef(const std::string& truck_text);
 
+// Parse with upstream RigDef and serialize the physics sections understood by
+// the portable iOS actor core into a deterministic canonical truck definition.
+// This makes legacy/import/default inheritance semantics come from upstream
+// rather than from the lightweight compatibility parser. Unsupported sections
+// remain visible to the summary/audit and are ported subsystem-by-subsystem.
+std::string CanonicalPhysicsRigDef(const std::string& truck_text);
+
 } // namespace IOSNative
 } // namespace RoR
